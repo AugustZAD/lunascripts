@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync as readFile, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createCommandRunner } from "./contract-rollout/command.mjs";
 import { approvalDigest, isContractImpactingPath } from "./contract-rollout/core.mjs";
 import { createGitHubClient, parsePullRequestUrl } from "./contract-rollout/github.mjs";
+import { applyAuditReport, prepareRollout } from "./contract-rollout/preparation.mjs";
 
 const DEFAULT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONFIRM = "APPROVE_CONTRACT_ROLLOUT";
@@ -91,6 +94,49 @@ async function continueCommand(url, args, deps) {
   throw new Error("confirmed execution adapter is not installed yet; no changes were made");
 }
 
+async function prepareCommand(url, args, deps) {
+  const prepared = prepareRollout({ upstreamUrl: url, root: deps.root, runner: deps.runner, github: deps.github });
+  deps.io.out(`Prepared Backend and IDE PRs on ${prepared.branch}.`);
+  if (has(args, "--no-wait-audit")) {
+    deps.io.out("Audit not dispatched; rerun prepare without --no-wait-audit to reach the approval gate.");
+    return 0;
+  }
+  const parsed = parsePullRequestUrl(url);
+  const started = new Date(Date.now() - 5_000).toISOString();
+  deps.github.dispatchWorkflow(
+    prepared.record.backend.repository,
+    "lunascripts-contract-audit.yml",
+    prepared.branch,
+    {
+      upstream_sha: prepared.record.upstream.headSha,
+      backend_sha: prepared.record.backend.headSha,
+      upstream_pr_url: url,
+    },
+  );
+  const run = deps.github.waitForWorkflowRun(prepared.record.backend.repository, "lunascripts-contract-audit.yml", {
+    createdAfter: started,
+    expectedHeadSha: prepared.record.backend.headSha,
+  });
+  const completed = deps.github.watchWorkflowRun(prepared.record.backend.repository, run.databaseId);
+  const download = mkdtempSync(join(tmpdir(), "lunascripts-audit-"));
+  try {
+    const artifact = `lunascripts-contract-audit-${prepared.record.upstream.headSha}`;
+    deps.github.downloadArtifact(prepared.record.backend.repository, run.databaseId, artifact, download);
+    const report = JSON.parse(readFile(join(download, "lunascripts-contract-audit.json"), "utf8"));
+    const record = applyAuditReport(prepared.record, report);
+    deps.github.upsertRolloutComment(parsed.repository, parsed.number, record);
+    deps.io.out(`Read-only stored-content audit: ${record.audit.blockers} blocker(s), ${record.audit.repairRecommended} repair recommendation(s).`);
+    if (record.state === "awaiting_approval" && completed.conclusion === "success") {
+      deps.io.out("Preparation is complete. Review the report, then approve once in this Agent conversation.");
+      return 0;
+    }
+    deps.io.err(`Preparation stopped in ${record.state}; production was not changed.`);
+    return 1;
+  } finally {
+    rmSync(download, { recursive: true, force: true });
+  }
+}
+
 export async function main(argv = process.argv.slice(2), provided = {}) {
   const io = provided.io ?? defaultIo();
   const root = provided.root ?? DEFAULT_ROOT;
@@ -98,11 +144,12 @@ export async function main(argv = process.argv.slice(2), provided = {}) {
   const github = provided.github ?? createGitHubClient(runner);
   const deps = { io, root, runner, github };
   try {
-    if (argv[0] !== "rollout") throw new Error("usage: contractctl rollout <validate|status|continue>");
+    if (argv[0] !== "rollout") throw new Error("usage: contractctl rollout <validate|prepare|status|continue>");
     const command = argv[1];
     if (command === "validate") return await validateCommand(argv.slice(2), deps);
     const url = argv[2];
     if (!url) throw new Error(`${command} requires an upstream pull request URL`);
+    if (command === "prepare") return await prepareCommand(url, argv.slice(3), deps);
     if (command === "status") return await statusCommand(url, argv.slice(3), deps);
     if (command === "continue") return await continueCommand(url, argv.slice(3), deps);
     throw new Error(`unknown rollout command: ${command}`);
