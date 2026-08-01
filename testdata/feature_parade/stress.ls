@@ -53,7 +53,7 @@
     NARRATOR: [T54a] choice condition branch.
   } @else @if (EP01_COMPLETE) {
     NARRATOR: [T54b] flag condition branch.
-  } @else @if (stress_count >= 1) {
+  } @else @if (STRESS_COUNT >= 1) {
     NARRATOR: [T54c] signal-int comparison branch (replaces removed influence-kind).
   } @else @if (affection.easton >= 1) {
     NARRATOR: [T54d] comparison on affection.
@@ -182,13 +182,13 @@
   // [T58b] @signal int — persistent integer counter (assign / +/ -)
   // ================================================================
   NARRATOR: [T58b] @signal int — three write forms plus a comparison read.
-  @signal int stress_count = 0
-  @signal int stress_count +2
-  @signal int stress_count -1
-  @if (stress_count >= 2) {
-    NARRATOR: [T58b-hi] stress_count crossed the 2 threshold.
+  @signal int STRESS_COUNT = 0
+  @signal int STRESS_COUNT +2
+  @signal int STRESS_COUNT -1
+  @if (STRESS_COUNT >= 2) {
+    NARRATOR: [T58b-hi] STRESS_COUNT crossed the 2 threshold.
   } @else {
-    NARRATOR: [T58b-lo] stress_count below threshold.
+    NARRATOR: [T58b-lo] STRESS_COUNT below threshold.
   }
 
   NARRATOR: [T60 → main:02] Stress gate has a single unconditional leaf — jumps to ep02 unconditionally.

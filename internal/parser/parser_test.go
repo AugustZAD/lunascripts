@@ -490,8 +490,8 @@ func TestParseSignalIntAssign(t *testing.T) {
 		src    string
 		expect int
 	}{
-		{"zero", `@signal int rejections = 0`, 0},
-		{"positive", `@signal int rejections = 5`, 5},
+		{"zero", `@signal int REJECTIONS = 0`, 0},
+		{"positive", `@signal int REJECTIONS = 5`, 5},
 		{"negative", `@signal int x = -3`, -3},
 	}
 	for _, c := range cases {
@@ -509,12 +509,12 @@ func TestParseSignalIntAssign(t *testing.T) {
 // TestParseSignalIntAdd covers `@signal int <name> +N`.
 func TestParseSignalIntAdd(t *testing.T) {
 	src := `@episode main:01 "t" {
-@signal int rejections +1
+@signal int REJECTIONS +1
 @gate { @next main:02 }
 }`
 	ep := parseOrFail(t, src)
 	sig := ep.Body[0].(*ast.SignalNode)
-	if sig.Op != ast.SignalOpAdd || sig.Value != 1 || sig.Name != "rejections" {
+	if sig.Op != ast.SignalOpAdd || sig.Value != 1 || sig.Name != "REJECTIONS" {
 		t.Errorf("got name=%q op=%q value=%d", sig.Name, sig.Op, sig.Value)
 	}
 }
@@ -522,7 +522,7 @@ func TestParseSignalIntAdd(t *testing.T) {
 // TestParseSignalIntSub covers `@signal int <name> -N`.
 func TestParseSignalIntSub(t *testing.T) {
 	src := `@episode main:01 "t" {
-@signal int rejections -2
+@signal int REJECTIONS -2
 @gate { @next main:02 }
 }`
 	ep := parseOrFail(t, src)
@@ -540,7 +540,7 @@ func TestParseSignalIntErrors(t *testing.T) {
 		substr string
 	}{
 		{"missing name", `@episode main:01 "t" { @signal int @gate { @next main:02 } }`, "expected variable name"},
-		{"missing op", "@episode main:01 \"t\" { @signal int rejections\n@gate { @next main:02 } }", "expected '=', '+N', or '-N'"},
+		{"missing op", "@episode main:01 \"t\" { @signal int REJECTIONS\n@gate { @next main:02 } }", "expected '=', '+N', or '-N'"},
 		{"missing value after =", `@episode main:01 "t" { @signal int x = @gate { @next main:02 } }`, "expected integer literal"},
 		{"non-integer after =", "@episode main:01 \"t\" { @signal int x = abc\n@gate { @next main:02 } }", "expected integer literal"},
 		{"plus-zero rejected", "@episode main:01 \"t\" { @signal int x +0\n@gate { @next main:02 } }", "meaningless"},
@@ -1035,7 +1035,7 @@ func TestParseConditionLiteralLeftComparison(t *testing.T) {
 // both sides are bare-name operands.
 func TestParseConditionValueToValueComparison(t *testing.T) {
 	src := `@episode main:01 "T" {
-		@if (san >= rejections) {
+		@if (san >= REJECTIONS) {
 			NARRATOR: ok.
 		}
 		@gate { @next main:02 }
@@ -1049,7 +1049,7 @@ func TestParseConditionValueToValueComparison(t *testing.T) {
 	if cmp.Left.Kind != ast.OperandValue || cmp.Left.Name != "san" {
 		t.Errorf("Left: got %+v", cmp.Left)
 	}
-	if cmp.Right.Kind != ast.OperandValue || cmp.Right.Name != "rejections" {
+	if cmp.Right.Kind != ast.OperandValue || cmp.Right.Name != "REJECTIONS" {
 		t.Errorf("Right: got %+v", cmp.Right)
 	}
 }
@@ -1120,7 +1120,7 @@ func TestParseOperandKindAffection(t *testing.T) {
 // TestParseOperandKindValue verifies bare-IDENT value operand.
 func TestParseOperandKindValue(t *testing.T) {
 	src := `@episode main:01 "T" {
-		@if (rejections > 3) {
+		@if (REJECTIONS > 3) {
 			NARRATOR: hi.
 		}
 		@gate { @next main:02 }
@@ -1130,7 +1130,7 @@ func TestParseOperandKindValue(t *testing.T) {
 	if cmp.Left.Kind != ast.OperandValue {
 		t.Fatalf("Left.Kind: got %q, want value", cmp.Left.Kind)
 	}
-	if cmp.Left.Name != "rejections" {
+	if cmp.Left.Name != "REJECTIONS" {
 		t.Errorf("Left.Name: got %q", cmp.Left.Name)
 	}
 }

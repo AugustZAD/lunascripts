@@ -128,6 +128,9 @@ func TestEmitMinimal(t *testing.T) {
 	}
 
 	// Check top-level fields.
+	if result["ls_contract_version"] != ContractVersion {
+		t.Errorf("ls_contract_version = %v, want %q", result["ls_contract_version"], ContractVersion)
+	}
 	if result["episode_id"] != "main:01" {
 		t.Errorf("episode_id = %v, want %q", result["episode_id"], "main:01")
 	}
@@ -703,7 +706,7 @@ func TestEmitGateMixedNextAndEnd(t *testing.T) {
 			Routes: []*ast.GateRoute{
 				{
 					Condition: &ast.ComparisonCondition{
-						Left:  &ast.ComparisonOperand{Kind: ast.OperandValue, Name: "rejections"},
+						Left:  &ast.ComparisonOperand{Kind: ast.OperandValue, Name: "REJECTIONS"},
 						Op:    ">=",
 						Right: &ast.ComparisonOperand{Kind: ast.OperandLiteral, Value: 3},
 					},
@@ -876,7 +879,7 @@ func assertStepEquals(t *testing.T, got, want map[string]interface{}) {
 
 func TestEmitSignalIntAssign(t *testing.T) {
 	src := `@episode main:01 "t" {
-  @signal int rejections = 0
+  @signal int REJECTIONS = 0
   @gate { @end complete }
 }`
 	step := firstBodyStep(t, src)
@@ -884,7 +887,7 @@ func TestEmitSignalIntAssign(t *testing.T) {
 		"id":    "0001_sig",
 		"type":  "signal",
 		"kind":  "int",
-		"name":  "rejections",
+		"name":  "REJECTIONS",
 		"op":    "=",
 		"value": float64(0),
 	}
@@ -893,7 +896,7 @@ func TestEmitSignalIntAssign(t *testing.T) {
 
 func TestEmitSignalIntAdd(t *testing.T) {
 	src := `@episode main:01 "t" {
-  @signal int rejections +1
+  @signal int REJECTIONS +1
   @gate { @end complete }
 }`
 	step := firstBodyStep(t, src)
@@ -901,7 +904,7 @@ func TestEmitSignalIntAdd(t *testing.T) {
 		"id":    "0001_sig",
 		"type":  "signal",
 		"kind":  "int",
-		"name":  "rejections",
+		"name":  "REJECTIONS",
 		"op":    "+",
 		"value": float64(1),
 	}
@@ -910,7 +913,7 @@ func TestEmitSignalIntAdd(t *testing.T) {
 
 func TestEmitSignalIntSub(t *testing.T) {
 	src := `@episode main:01 "t" {
-  @signal int rejections -2
+  @signal int REJECTIONS -2
   @gate { @end complete }
 }`
 	step := firstBodyStep(t, src)
@@ -918,7 +921,7 @@ func TestEmitSignalIntSub(t *testing.T) {
 		"id":    "0001_sig",
 		"type":  "signal",
 		"kind":  "int",
-		"name":  "rejections",
+		"name":  "REJECTIONS",
 		"op":    "-",
 		"value": float64(2),
 	}
@@ -942,7 +945,7 @@ func TestEmitSignalMarkUnchanged(t *testing.T) {
 
 func TestEmitIfReadsIntVariableAsComparison(t *testing.T) {
 	src := `@episode main:01 "t" {
-  @if (rejections >= 3) {
+  @if (REJECTIONS >= 3) {
     NARRATOR: too many
   }
   @gate { @end complete }
@@ -956,7 +959,7 @@ func TestEmitIfReadsIntVariableAsComparison(t *testing.T) {
 		t.Fatalf("expected comparison, got %v", cond["type"])
 	}
 	left := cond["left"].(map[string]interface{})
-	if left["kind"] != "value" || left["name"] != "rejections" {
+	if left["kind"] != "value" || left["name"] != "REJECTIONS" {
 		t.Fatalf("unexpected left: %#v", left)
 	}
 	if cond["op"] != ">=" {
@@ -1108,7 +1111,7 @@ func TestEmitOperandMax4Args(t *testing.T) {
 func TestEmitOperandMaxMixedKinds(t *testing.T) {
 	// max(affection, value, literal)
 	src := `@episode main:01 "t" {
-  @if (MAX(affection.easton, rejections, 5) >= 7) {
+  @if (MAX(affection.easton, REJECTIONS, 5) >= 7) {
     NARRATOR: above floor
   }
   @gate { @end complete }
@@ -1126,8 +1129,8 @@ func TestEmitOperandMaxMixedKinds(t *testing.T) {
 	if a0["kind"] != "affection" {
 		t.Errorf("args[0].kind = %v, want affection", a0["kind"])
 	}
-	if a1["kind"] != "value" || a1["name"] != "rejections" {
-		t.Errorf("args[1] = %#v, want value/rejections", a1)
+	if a1["kind"] != "value" || a1["name"] != "REJECTIONS" {
+		t.Errorf("args[1] = %#v, want value/REJECTIONS", a1)
 	}
 	if a2["kind"] != "literal" || a2["value"].(float64) != 5 {
 		t.Errorf("args[2] = %#v, want literal 5", a2)
@@ -1291,7 +1294,7 @@ func TestStepIDConcurrentGroupSharesParentCounter(t *testing.T) {
 }
 
 // TestStepIDChoiceContinuesCounter verifies that choice option bodies
-// continue the episode-scoped counter.
+// continue the episode-scoped COUNTER.
 func TestStepIDChoiceContinuesCounter(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",
@@ -1323,7 +1326,7 @@ func TestStepIDChoiceContinuesCounter(t *testing.T) {
 					},
 				},
 			},
-			&ast.NarratorNode{Text: "outro"}, // 0010_nar (continues parent counter past choice)
+			&ast.NarratorNode{Text: "outro"}, // 0010_nar (continues parent COUNTER past choice)
 		},
 		Gate: &ast.GateBlock{Routes: []*ast.GateRoute{nextLeaf("main:02")}},
 	}
@@ -1364,7 +1367,7 @@ func TestStepIDChoiceContinuesCounter(t *testing.T) {
 }
 
 // TestStepIDIfContinuesCounter verifies that if.then and if.else
-// continue the episode-scoped counter after the if step itself.
+// continue the episode-scoped COUNTER after the if step itself.
 func TestStepIDIfContinuesCounter(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",
@@ -1417,7 +1420,7 @@ func TestStepIDIfContinuesCounter(t *testing.T) {
 }
 
 // TestStepIDPhoneShowContinuesCounter verifies phone_show.messages
-// continues the episode-scoped counter.
+// continues the episode-scoped COUNTER.
 func TestStepIDPhoneShowContinuesCounter(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",
@@ -1547,7 +1550,7 @@ func TestStepIDTrickLeaf(t *testing.T) {
 
 // TestStepIDCgShowLeaf verifies cg_show is now a leaf step — it consumes
 // one seq, carries no body / steps / duration / transition, and the next
-// sibling continues the parent counter directly.
+// sibling continues the parent COUNTER directly.
 func TestStepIDCgShowLeaf(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",

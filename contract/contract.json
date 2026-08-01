@@ -1,0 +1,17 @@
+{
+  "$schema": "./contract-manifest.schema.json",
+  "contract_version": "2.0.0",
+  "episode_schema": "episode.schema.json",
+  "source_spec": "../LS-SPEC.md",
+  "json_output_spec": "../docs/JSON-OUTPUT.md",
+  "author_signal_name_pattern": "^[A-Z][A-Z0-9_]*$",
+  "author_signal_name_style": "SCREAMING_SNAKE_CASE",
+  "engine_value_namespace": "runtime-declared and read-only; lowercase names remain distinct from author signals",
+  "valid_fixtures": "fixtures/valid",
+  "invalid_fixtures": "fixtures/invalid",
+  "compatibility": {
+    "breaking": true,
+    "legacy_unversioned_episode_json": "consumer migration concern; v2 compiler output is always versioned",
+    "migration": "rename every author-defined signal mark/int and its readers to SCREAMING_SNAKE_CASE"
+  }
+}

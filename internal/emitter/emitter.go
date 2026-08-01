@@ -10,6 +10,10 @@ import (
 	"github.com/cdotlock/lunascripts/internal/ast"
 )
 
+// ContractVersion identifies the LS source/JSON contract emitted by this
+// compiler. Consumers must negotiate this version before activating content.
+const ContractVersion = "2.0.0"
+
 // AssetResolver maps semantic asset names to full URLs.
 type AssetResolver interface {
 	ResolveBg(name string) (string, error)
@@ -60,11 +64,12 @@ func (e *Emitter) Emit(ep *ast.Episode) ([]byte, error) {
 	}
 
 	out := map[string]interface{}{
-		"episode_id": ep.BranchKey,
-		"branch_key": extractBranchKey(ep.BranchKey),
-		"seq":        extractSeq(ep.BranchKey),
-		"title":      ep.Title,
-		"steps":      e.emitNodes(ep.Body),
+		"ls_contract_version": ContractVersion,
+		"episode_id":          ep.BranchKey,
+		"branch_key":          extractBranchKey(ep.BranchKey),
+		"seq":                 extractSeq(ep.BranchKey),
+		"title":               ep.Title,
+		"steps":               e.emitNodes(ep.Body),
 	}
 
 	if ep.Gate != nil {

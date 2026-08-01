@@ -780,13 +780,57 @@ func TestValidateSignalIntReservedNameIsItself(t *testing.T) {
 	}
 }
 
+func TestValidateAuthorSignalNamesUseScreamingSnakeCase(t *testing.T) {
+	valid := []ast.Node{
+		&ast.SignalNode{Kind: ast.SignalKindMark, Event: "FIRST_MEETING"},
+		&ast.SignalNode{Kind: ast.SignalKindInt, Name: "LOVE_POINTS", Op: ast.SignalOpAdd, Value: 1},
+	}
+	ep := &ast.Episode{
+		BranchKey: "main:01",
+		Title:     "t",
+		Body:      valid,
+		Gate:      unconditionalGate("main:02"),
+	}
+	for _, err := range Validate(ep) {
+		if err.Code == InvalidSignalName {
+			t.Fatalf("uppercase author signal unexpectedly rejected: %v", err)
+		}
+	}
+
+	invalid := []struct {
+		name string
+		kind string
+	}{
+		{name: "love_points", kind: ast.SignalKindInt},
+		{name: "Love_Points", kind: ast.SignalKindInt},
+		{name: "1_LOVE_POINTS", kind: ast.SignalKindInt},
+		{name: "LOVE-POINTS", kind: ast.SignalKindInt},
+		{name: "first_meeting", kind: ast.SignalKindMark},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.kind+"/"+tc.name, func(t *testing.T) {
+			node := &ast.SignalNode{Kind: tc.kind, Name: tc.name, Event: tc.name, Op: ast.SignalOpAdd, Value: 1}
+			ep := &ast.Episode{BranchKey: "main:01", Title: "t", Body: []ast.Node{node}, Gate: unconditionalGate("main:02")}
+			found := false
+			for _, err := range Validate(ep) {
+				if err.Code == InvalidSignalName {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s for %q", InvalidSignalName, tc.name)
+			}
+		})
+	}
+}
+
 func TestValidateSignalIntOK(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",
 		Title:     "t",
 		Body: []ast.Node{
-			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "rejections", Op: ast.SignalOpAssign, Value: 0},
-			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "rejections", Op: ast.SignalOpAdd, Value: 1},
+			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "REJECTIONS", Op: ast.SignalOpAssign, Value: 0},
+			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "REJECTIONS", Op: ast.SignalOpAdd, Value: 1},
 		},
 		Gate: &ast.GateBlock{
 			Routes: []*ast.GateRoute{

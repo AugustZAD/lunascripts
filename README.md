@@ -31,6 +31,13 @@ lsc validate episode.ls.md
 
 See [LS-SPEC.md](LS-SPEC.md) for the complete specification.
 
+## Consumer contract
+
+`contract/contract.json` identifies the current LS/Episode JSON contract.
+`contract/episode.schema.json` and `contract/fixtures/` are the machine-readable
+artifacts consumed by IDE and Backend. Consumers pin an exact repository commit;
+language rules must be changed here first rather than patched downstream.
+
 ## Development
 
 ```bash

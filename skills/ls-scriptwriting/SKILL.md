@@ -101,7 +101,7 @@ Read this before writing. LLMs reliably fall into specific traps that pass the p
 1. **Don't mint a sprite library.** Aim for **~3–6 distinct poses per character per episode**, and **reuse aggressively**. Every new pose name has an upstream cost (semantic name → mapping JSON → OSS asset). If two beats both want "happy", reuse `gentle_smile` instead of minting `gentle_smile_morning_light_v2`. The character does not need fifty micro-expressions.
 2. **Don't carpet-bomb music and SFX.** One BGM at scene start, with later `@music <new_name>` lines on major mood shifts, is usually enough — typically **≤3 distinct music tracks per episode**. Don't restart a track if the current one still fits. SFX should punctuate beats (a slap, a phone notification), **not** narrate ambient sound the player can imagine.
 3. **Do change backgrounds when the location does.** The opposite failure: LLMs sometimes run two scenes off the same backdrop. If you wrote a scene-cut in your head (cafeteria → rooftop), that's two `@bg set ...` calls — backgrounds anchor the player's spatial sense.
-4. **`@butterfly` feeds downstream content generators, not gate routing.** Butterfly's *only* consumers are downstream content-generation agents — **Remix Executor** (regenerating remix branches consistent with the player's pattern) and **Dream** (generating dream-sequence inserts). Gate evaluation does **not** read butterfly accumulation; all routing relies on deterministic state (`@signal mark`, `@signal int`, `@affection`, choice history). When you *do* want a beat to count toward future remix / dream generation, butterfly is the tool — write a specific description of what *this* player did that another player wouldn't have. Bad: "Made a choice." Good: "Showed vulnerability by accepting help from a former rival." For intra-episode story-flag branching use `@signal mark`; for repeat-event counters use `@signal int counter +1`.
+4. **`@butterfly` feeds downstream content generators, not gate routing.** Butterfly's *only* consumers are downstream content-generation agents — **Remix Executor** (regenerating remix branches consistent with the player's pattern) and **Dream** (generating dream-sequence inserts). Gate evaluation does **not** read butterfly accumulation; all routing relies on deterministic state (`@signal mark`, `@signal int`, `@affection`, choice history). When you *do* want a beat to count toward future remix / dream generation, butterfly is the tool — write a specific description of what *this* player did that another player wouldn't have. Bad: "Made a choice." Good: "Showed vulnerability by accepting help from a former rival." For intra-episode story-flag branching use `@signal mark`; for repeat-event counters use `@signal int COUNTER +1`.
 5. **Don't write essay-length option text.** Choice option text is the player's UI button label — keep it under **~12 words**. Long narrative belongs *inside* the option block, not in the option text. Bad: `@option A brave "Stand your ground and tell him exactly how you feel about everything that happened last summer when he lied" { ... }`. Good: `@option A brave "Stand your ground." { ... }`.
 6. **Don't compress when you should breathe.** LLMs default to terse summarization; Galgame pacing is the opposite. Let scenes land — an `@pause` after scene setup, an internal `YOU:` line between two pieces of dialogue, an extra silent beat after a confession. Token pressure pushes you toward "compress"; resist it. Players paid to live the moments, not skim a plot summary.
 7. **Don't write side branches with no entry, or gate routes with no destination.** Every side episode (`main/route/...`, `main/bad/...`) you imagine needs a `@gate` somewhere upstream that routes into it via `@next`. Conversely, every `@next <branch_key>` in a `@gate` must point at an episode file you actually wrote. A beautiful unreachable bad-end is dead content; a `@next main/route/001:01` with no file is a broken link.
@@ -356,8 +356,8 @@ These are declarations — the game engine handles the actual math.
 @affection easton +2                                   // Character relationship
 @butterfly "Accepted Easton's approach"                // Flavor memory for downstream content generators
 @signal mark HIGH_HEEL_EP05                            // Key story point — queried later
-@signal int rejections +1                              // Persistent integer counter — free to mutate
-@signal int rejections = 0                             // Explicit reset / initialization
+@signal int REJECTIONS +1                              // Persistent integer counter — free to mutate
+@signal int REJECTIONS = 0                             // Explicit reset / initialization
 @achievement HIGH_HEEL_WARRIOR {                       // Achievement unlock
   name: "Heel as Weapon"
   rarity: rare
@@ -370,7 +370,7 @@ These are declarations — the game engine handles the actual math.
 **`@signal <kind> <...>` — kind is mandatory.** Two kinds are implemented:
 
 - `@signal mark <event>` — persistent boolean flag. Use sparingly; every mark must have a reader (see below).
-- `@signal int <name> <op> <value>` — persistent integer counter. Free to mutate (`= N`, `+N`, `-N`). Read via `@if (name >= N)` comparison.
+- `@signal int <name> <op> <value>` — persistent integer counter. Free to mutate (`= N`, `+N`, `-N`). Read via `@if (NAME >= N)` comparison.
 
 Achievements are **not** a signal kind — use `@achievement <id> { ... }` for those.
 
@@ -379,19 +379,19 @@ Achievements are **not** a signal kind — use `@achievement <id> { ... }` for t
 | `mark` | Persistent boolean flag. Engine stores it forever. `@if (NAME)` queries this store. **Use only for key story points** — hidden-route triggers and achievement-unlock guards. | **Yes** — becomes a `flag` condition |
 | `int` | Persistent integer variable. Engine stores across episodes. `@if (NAME <cmp> N)` queries the value via comparison. Free to mutate as often as needed — counters are the whole point. | **Yes** — becomes a `comparison` condition with `left.kind="value"` |
 
-For `mark`, `event` can be a bare identifier or a double-quoted string. For `int`, `name` is a bare `snake_case` identifier.
+For both kinds, the author-defined name uses English `SCREAMING_SNAKE_CASE` and must match `^[A-Z][A-Z0-9_]*$`. Lowercase names are reserved for runtime-declared, read-only engine values such as `san`.
 
 ### Mark discipline — marks are NOT wayposts
 
 **Every `@signal mark X` must have a reader.** Either some later `@if (X)` branch depends on it, or some `@if (X && ...) { @achievement ID { ... } }` unlock guard references it. If nothing reads it, delete it. Cluttering the flag store dilutes the signal (pun intended) and confuses downstream tooling.
 
-**`@signal int` is not mark.** Counters are expected to be written often — `rejections +1` every time the player rejects Easton is exactly the point. The "marks are precious" discipline does NOT apply. Use `@signal int` whenever you need "if player did X at least N times" or "N-of-M threshold" branching. Prefer `@signal int counter +1` + `@if (counter >= N)` over stacking multiple boolean marks.
+**`@signal int` is not mark.** Counters are expected to be written often — `REJECTIONS +1` every time the player rejects Easton is exactly the point. The "marks are precious" discipline does NOT apply. Use `@signal int` whenever you need "if player did X at least N times" or "N-of-M threshold" branching. Prefer `@signal int COUNTER +1` + `@if (COUNTER >= N)` over stacking multiple boolean marks.
 
 Guidelines for ints:
-- Name in `snake_case` (e.g. `rejections`, `brave_count`, `times_met_easton`).
+- Name in `SCREAMING_SNAKE_CASE` (e.g. `REJECTIONS`, `BRAVE_COUNT`, `TIMES_MET_EASTON`).
 - Avoid names that look like engine values (`san`, `cha`, `hp`, `xp`) — the validator will reject these.
-- `@signal int x = 0` is an unconditional assignment — if placed somewhere the player can revisit, it will reset the counter. That is the author's responsibility; the engine does not protect.
-- For first-time reads, the engine treats undeclared variables as 0, so `@signal int x +1` and `@if (x >= 1)` work without any prior `= 0`.
+- `@signal int LOVE_POINTS = 0` is an unconditional assignment — if placed somewhere the player can revisit, it will reset the counter. That is the author's responsibility; the engine does not protect.
+- For first-time reads, the engine treats undeclared variables as 0, so `@signal int LOVE_POINTS +1` and `@if (LOVE_POINTS >= 1)` work without any prior `= 0`.
 
 **Write the mark second.** Start from the reader:
 
@@ -405,7 +405,7 @@ Guidelines for ints:
 - ❌ `@signal mark CHOSE_OPTION_A` after a choice — the choice history is in the engine's choice log; gate `@if (A.success)` queries it directly
 - ❌ `@signal mark AFFECTION_RAISED` — `@affection` already updated the number; `@if (affection.easton >= 5)` queries the value directly
 - ❌ `@signal mark EASTON_ACKNOWLEDGED` as a character-moment marker with no follow-up — that's what `@butterfly` is for (feeds Remix / Dream, not boolean-queried)
-- ❌ Don't use `@signal mark COUNTER_HIT_3` to track thresholds — that's what `@signal int` is for. Use `@signal int counter +1` then `@if (counter >= 3)`.
+- ❌ Don't use `@signal mark COUNTER_HIT_3` to track thresholds — that's what `@signal int` is for. Use `@signal int COUNTER +1` then `@if (COUNTER >= 3)`.
 
 **DO emit marks for these cases:**
 
@@ -447,7 +447,7 @@ Guidelines for ints:
   }
   ```
 
-**Name all signal events and achievement ids in `SCREAMING_SNAKE_CASE` English.** Keeps the flag store grep-able and unambiguous across the pipeline.
+**Name every author signal (`mark` and `int`) and every achievement id in `SCREAMING_SNAKE_CASE` English.** The compiler enforces the signal rule; lowercase bare names remain available to engine-managed values.
 
 **Where to put the `@if ... { @achievement ID }` guard** for arc achievements: put it after the *last* mark in the chain is emitted — the guard only fires if every required mark is already set. Putting it at the start of an episode works too but is redundant (you'd re-check every time). One clean guard beats multiple scattered checks.
 
@@ -462,7 +462,7 @@ Guidelines for ints:
 
 When you do want a beat to inform downstream content, write a clear, specific description of what *this* player did that another player wouldn't have. Bad: "Made a choice." Good: "Showed vulnerability by accepting help from a former rival."
 
-For intra-episode story-flag branching use `@signal mark`; for repeat-event counting use `@signal int counter +1` then `@if (counter >= N)`.
+For intra-episode story-flag branching use `@signal mark`; for repeat-event counting use `@signal int COUNTER +1` then `@if (COUNTER >= N)`.
 
 ### Achievements — `@achievement`
 
@@ -538,7 +538,7 @@ Use `@if` to show different content based on game state. **Parentheses `()` are 
 |------|--------|---------|
 | choice | `OPTION.result` | `@if (A.fail) { }` — result: `success` / `fail` / `any`. Use from outside the option |
 | flag | `SIGNAL_NAME` | `@if (EP01_COMPLETE) { }` |
-| comparison | `<operand> <op> <operand>` | `@if (affection.easton >= 5) { }`, `@if (rejections >= 3) { }`, `@if (affection.easton > affection.diego) { }` |
+| comparison | `<operand> <op> <operand>` | `@if (affection.easton >= 5) { }`, `@if (REJECTIONS >= 3) { }`, `@if (affection.easton > affection.diego) { }` |
 | compound | `<expr> && <expr>` / `<expr> \|\| <expr>` | `@if (san <= 20 \|\| FAILED_TWICE) { }` |
 | check | `check.success` / `check.fail` | `@if (check.success) { }` — context-local, only valid inside a brave option body |
 
@@ -565,7 +565,7 @@ Both sides of a comparison are *operands*. The validator enforces that both side
 
 ```
 @if (affection.easton >= 5)                                        // value-to-literal
-@if (rejections >= 3)                                              // signal int read
+@if (REJECTIONS >= 3)                                              // signal int read
 @if (affection.easton > affection.diego)                           // value-to-value
 @if (5 < affection.easton)                                         // literal-to-value (mirror form)
 @if (MAX(affection.easton, affection.diego) >= 5)                  // 2-arg aggregate
@@ -592,7 +592,7 @@ The `@gate` block at the end of every episode declares where the player goes nex
   @if (A.fail): @end bad_ending
 
   // Counter-based terminal
-  @else @if (rejections >= 3): @end bad_ending
+  @else @if (REJECTIONS >= 3): @end bad_ending
 
   // Mark-based hidden route
   @else @if (HEROIC_END_REACHED): @end complete
@@ -638,7 +638,7 @@ You can also mix `@next` and `@end` leaves in one gate, e.g. a chapter finale th
 
 ```
 @gate {
-  @if (rejections >= 3): @end bad_ending
+  @if (REJECTIONS >= 3): @end bad_ending
   @else @if (HEROIC_END_REACHED): @end complete
   @else: @next main:02
 }

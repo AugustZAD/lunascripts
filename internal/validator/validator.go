@@ -3,6 +3,7 @@ package validator
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/cdotlock/lunascripts/internal/ast"
 )
@@ -20,6 +21,7 @@ const (
 	InvalidEndType             = "INVALID_END_TYPE"
 	InvalidCondition           = "INVALID_CONDITION"
 	InvalidSignalKind          = "INVALID_SIGNAL_KIND"
+	InvalidSignalName          = "INVALID_SIGNAL_NAME"
 	InvalidRarity              = "INVALID_RARITY"
 	AchievementMissingField    = "ACHIEVEMENT_MISSING_FIELD"
 	MinigameMissingDescription = "MINIGAME_MISSING_DESCRIPTION"
@@ -47,6 +49,11 @@ var validSignalKinds = map[string]bool{
 	ast.SignalKindMark: true,
 	ast.SignalKindInt:  true,
 }
+
+// validAuthorSignalName is the single source-language naming contract for
+// both persistent boolean marks and author-defined integer values. Lowercase
+// names remain available to engine-managed values (for example `san`).
+var validAuthorSignalName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 // reservedKeywords are identifiers reserved by the LS language. They
 // may not be used as signal mark names, signal int names, or character
@@ -239,6 +246,12 @@ func checkSignals(nodes []ast.Node, errs *[]Error) {
 			}
 			switch v.Kind {
 			case ast.SignalKindMark:
+				if !validAuthorSignalName.MatchString(v.Event) {
+					*errs = append(*errs, Error{
+						Code:    InvalidSignalName,
+						Message: fmt.Sprintf("@signal mark %q: author signal names must use SCREAMING_SNAKE_CASE (for example: FIRST_MEETING)", v.Event),
+					})
+				}
 				if reservedKeywords[v.Event] {
 					*errs = append(*errs, Error{
 						Code:    ReservedKeyword,
@@ -246,6 +259,12 @@ func checkSignals(nodes []ast.Node, errs *[]Error) {
 					})
 				}
 			case ast.SignalKindInt:
+				if !validAuthorSignalName.MatchString(v.Name) {
+					*errs = append(*errs, Error{
+						Code:    InvalidSignalName,
+						Message: fmt.Sprintf("@signal int %q: author signal names must use SCREAMING_SNAKE_CASE (for example: LOVE_POINTS)", v.Name),
+					})
+				}
 				if reservedKeywords[v.Name] {
 					*errs = append(*errs, Error{
 						Code:    ReservedKeyword,

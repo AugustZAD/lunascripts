@@ -5,6 +5,7 @@
   "gate": {
     "next": "main:02"
   },
+  "ls_contract_version": "2.0.0",
   "seq": 1,
   "steps": [
     [
@@ -280,7 +281,7 @@
           "condition": {
             "left": {
               "kind": "value",
-              "name": "stress_count"
+              "name": "STRESS_COUNT"
             },
             "op": "\u003e=",
             "right": {
@@ -930,7 +931,7 @@
     {
       "id": "0085_sig",
       "kind": "int",
-      "name": "stress_count",
+      "name": "STRESS_COUNT",
       "op": "=",
       "type": "signal",
       "value": 0
@@ -938,7 +939,7 @@
     {
       "id": "0086_sig",
       "kind": "int",
-      "name": "stress_count",
+      "name": "STRESS_COUNT",
       "op": "+",
       "type": "signal",
       "value": 2
@@ -946,7 +947,7 @@
     {
       "id": "0087_sig",
       "kind": "int",
-      "name": "stress_count",
+      "name": "STRESS_COUNT",
       "op": "-",
       "type": "signal",
       "value": 1
@@ -955,7 +956,7 @@
       "condition": {
         "left": {
           "kind": "value",
-          "name": "stress_count"
+          "name": "STRESS_COUNT"
         },
         "op": "\u003e=",
         "right": {
@@ -967,7 +968,7 @@
       "else": [
         {
           "id": "0090_nar",
-          "text": "[T58b-lo] stress_count below threshold.",
+          "text": "[T58b-lo] STRESS_COUNT below threshold.",
           "type": "narrator"
         }
       ],
@@ -975,7 +976,7 @@
       "then": [
         {
           "id": "0089_nar",
-          "text": "[T58b-hi] stress_count crossed the 2 threshold.",
+          "text": "[T58b-hi] STRESS_COUNT crossed the 2 threshold.",
           "type": "narrator"
         }
       ],

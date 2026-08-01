@@ -164,7 +164,7 @@ UTF-8，换行符 `\n`。
 
 ```
 @gate {
-  @if (rejections >= 3): @end bad_ending
+  @if (REJECTIONS >= 3): @end bad_ending
   @else @if (HEROIC_END): @end complete
   @else: @next main:02
 }
@@ -485,7 +485,7 @@ D20 检定公式（引擎内置）：`D20(1-20) + 属性修正 >= DC → 成功`
 @affection easton +2                             // 好感度
 @butterfly "Accepted Easton's approach openly"   // 蝴蝶效应记录（喂下游内容生成 agent）
 @signal mark HIGH_HEEL_EP05                      // 持久布尔标记
-@signal int rejections +1                        // 持久整数变量
+@signal int REJECTIONS +1                        // 持久整数变量
 @achievement HIGH_HEEL_WARRIOR {                 // 成就解锁
   name: "Heel as Weapon"
   rarity: rare
@@ -495,7 +495,7 @@ D20 检定公式（引擎内置）：`D20(1-20) + 属性修正 >= DC → 成功`
 
 > **引擎管理的数值**（如 XP、SAN/HP 等）由引擎内部维护，脚本**不能**修改它们。脚本只能在 `@if` 条件中引用这些数值（如 `@if (san <= 20)`），具体名称由引擎定义。
 >
-> **作者自定义的整数变量**由 `@signal int <name> <op> <value>` 声明和修改，跨集持久，与引擎数值共享同一裸名读取命名空间。命名可自由发挥（撞名问题由作者自行处理）。
+> **作者自定义的 signal**（`mark` 和 `int`）统一使用英文 `SCREAMING_SNAKE_CASE`，必须匹配 `^[A-Z][A-Z0-9_]*$`。引擎管理的只读数值继续使用运行时声明的名称（例如小写 `san`）；大小写区分让两类状态不会互相冒充。`lsc validate` 会机械拦截不合规的作者 signal。
 
 #### `@affection <char> <+/-N>`
 
@@ -524,7 +524,7 @@ D20 检定公式（引擎内置）：`D20(1-20) + 属性修正 >= DC → 成功`
 
 持久布尔标记。引擎永久存储，在 `@if (NAME)` 条件中作为布尔值使用。**只用于关键剧情点**——触发隐藏剧情、成就解锁守卫。
 
-`event` 可为裸标识符或双引号字符串。所有 `event` 名称使用 `SCREAMING_SNAKE_CASE` 英文。
+`event` 可为裸标识符或双引号字符串。所有 `event` 名称使用 `SCREAMING_SNAKE_CASE` 英文，并匹配 `^[A-Z][A-Z0-9_]*$`。
 
 ###### Mark 不是"到此一游"标记
 
@@ -539,7 +539,7 @@ D20 检定公式（引擎内置）：`D20(1-20) + 属性修正 >= DC → 成功`
 - **"这集打完了"** → 引擎从 episode_id 就知道玩家进度
 - **"玩家选了 A"** → 选项结果存在引擎的 choice 历史里，gate `@if (A.success)` 直接查
 - **"好感度涨了"** → `@affection` 已经改过数值，`@if (affection.easton >= 5)` 直接查数值即可
-- **"某个计数阈值"** → 用 `@signal int counter +1` + `@if (counter >= N)`，比开多个布尔 mark 清晰得多
+- **"某个计数阈值"** → 用 `@signal int COUNTER +1` + `@if (COUNTER >= N)`，比开多个布尔 mark 清晰得多
 
 **真正需要打 mark 的情况：**
 
@@ -576,28 +576,29 @@ MALIA: One quick step. My heel went straight through his shoe.
 **三种写入形态：**
 
 ```
-@signal int rejections = 0       // 赋值（无条件覆盖，value 可为负）
-@signal int rejections +1        // 增
-@signal int rejections -2        // 减
+@signal int REJECTIONS = 0       // 赋值（无条件覆盖，value 可为负）
+@signal int REJECTIONS +1        // 增
+@signal int REJECTIONS -2        // 减
 ```
 
 **语义：**
 
 - **跨集持久**：与 `affection` / `mark` 同等生命周期
 - **首次引用视为 0**：`+1` 之前从未赋值 → 引擎从 0 起算，结果为 1
-- **`=` 无条件覆盖**：每次执行都赋值。把 `@signal int x = 0` 放在 ep01 顶部而玩家回放该集时变量会被重置为 0——是作者的责任
+- **统一命名**：作者 `int` 与 `mark` 一样使用 `SCREAMING_SNAKE_CASE`，如 `LOVE_POINTS`
+- **`=` 无条件覆盖**：每次执行都赋值。把 `@signal int LOVE_POINTS = 0` 放在 ep01 顶部而玩家回放该集时变量会被重置为 0——是作者的责任
 - **`+N` / `-N` 中 N 必须非负**：负增量用 `-N` 形态表达，`+0` / `-0` 无意义（用 `= 0`）
 
 **读取（裸名，与引擎数值同语法）：**
 
 ```
-@if (rejections >= 3) { ... }
-@if (rejections == 0) { ... }
-@if (rejections >= 3 && affection.easton < 2) { ... }
+@if (REJECTIONS >= 3) { ... }
+@if (REJECTIONS == 0) { ... }
+@if (REJECTIONS >= 3 && affection.easton < 2) { ... }
 
 @gate {
-  @if (rejections >= 3): @end bad_ending
-  @else @if (brave_count >= 3): @next main/route/hidden:01
+  @if (REJECTIONS >= 3): @end bad_ending
+  @else @if (BRAVE_COUNT >= 3): @next main/route/hidden:01
   @else: @next main:02
 }
 ```
@@ -611,6 +612,57 @@ MALIA: One quick step. My heel went straight through his shoe.
 | 作者诫命 | "必须有人读，不要顺手打" | 无——计数器的本职就是被频繁修改 |
 
 `@signal int` **不受** "marks 要克制" 的诫命约束；计数器天生就是要频繁写入的。但只给计数器命名有实际含义的名字，不要一个变量半途改语义。
+
+#### MP 跨角色信号命名（cross-signal naming）
+
+多人故事（MP）中，一个角色的关键选择会被铸造成一个跨角色信号（cross-signal），写入双方共享的 multiplayer 状态盒，**让对方的脚本能用 `@if (...)` 读到自己角色当前为止的选择**。命名格式由引擎统一铸造，作者不手写信号名——但写跨角色条件查询时**必须**理解格式，否则没法引用对方的选择。
+
+**格式：**
+
+```
+mp_<role>_a<actIndex>_c<choiceIndex>_<optionId>
+```
+
+| 段 | 含义 | 来源 |
+|------|------|------|
+| `<role>` | 产出该选择的角色 roleKey（小写，例：`diego` / `seiya` / `ryu`） | 剧本声明的角色键 |
+| `<actIndex>` | 该角色当前 act/episode 在自己 track 中的 0-indexed 序号 | 编译期由 LS 结构决定 |
+| `<choiceIndex>` | 该 act 内、联合选择点（joint choice）按 DFS 文档顺序的 0-indexed 序号 | 编译期由 LS 结构决定 |
+| `<optionId>` | 角色实际选中的 `@option` 字面 ID（例：`A` / `B` / `CONFRONT`） | 运行时由玩家选择决定 |
+
+**核心性质：内容寻址（content-addressed），不是运行时寻址。**
+
+信号名由"选择在故事里的位置"决定（角色 + act 序号 + 该 act 内 joint choice 的 DFS 文档序号 + 选中的 option ID），**不依赖**运行时 barrier 计数器或谁先谁后到达。这意味着：
+
+- **重编译稳定**：同一份脚本无论编译多少次、玩家在哪个房间里运行，同一个选择产生的信号名都不变
+- **可前向引用**：partner 的脚本可以在自己 act 写 `@if (mp_diego_a2_c0_A)`，引用 diego 还没到达的选择——读取时机由引擎调度，命名时不需要同步
+- **位置 vs 时间**：信号名编码"这个选择在故事里的位置"，**不**编码"运行时什么时候到达"
+
+**示例：**
+
+`chaoreqi-idol` 故事中，diego 的 act 2（自己 track 的第 3 集，0-indexed = 2）按 DFS 文档顺序包含 3 个 joint choice。其中第 1 个（`choiceIndex = 0`）若玩家选了 option A，铸造的信号为：
+
+```
+mp_diego_a2_c0_A
+```
+
+seiya 的 track 可以在任意位置用条件查询门控：
+
+```
+@if (mp_diego_a2_c0_A) {
+  SEIYA: I saw what Diego picked. The corner's mine now.
+}
+```
+
+**对比历史命名（已废弃）：**
+
+旧设计用 `mp_<role>_b<N>_<opt>`，其中 `<N>` 是运行时 barrier 计数器编号。该方案在编译 / 重编译间不稳定（barrier 编号会因脚本结构变化漂移）、要求双方运行时严格按 barrier 顺序同步、且无法在 partner 未到达前进行前向引用。当前实现已**整体替换**为本节描述的位置寻址命名，旧 `b<N>` 形态在 codebase 中不再出现。
+
+**作者纪律：**
+
+- **不要手写 `mp_*` 信号名做 `@signal mark`**——cross-signal 由引擎在跨角色选择点自动铸造，作者只能 `@if` 读
+- **跨角色条件查询要做防御性书写**：partner 还没运行到那个选择点时该 `@if` 为 false，本角色脚本应能在 false 分支自然推进，不要强假设 partner 永远已到
+- **roleKey 命名一旦上线不可改**：信号名里嵌了 roleKey，改名等于历史信号全失效；roleKey 一经发布须冻结
 
 #### `@achievement <id> { name / rarity / description }`
 
@@ -666,7 +718,7 @@ MALIA: One quick step. My heel went straight through his shoe.
   EASTON: ...Hey.
 }
 
-@if (rejections >= 3 || FAILED_TWICE) {
+@if (REJECTIONS >= 3 || FAILED_TWICE) {
   YOU: I can barely keep it together.
 }
 ```
@@ -734,7 +786,7 @@ MALIA: One quick step. My heel went straight through his shoe.
 **约束**：
 - 比较两侧 operand 必须同为整数类型（validator 校验）
 - 聚合函数 args 全部为整数类型 operand，**args 列表长度 ≥ 2**（1 个 arg 的 MAX/MIN 是 parse error，因为退化为该 arg 本身、写聚合没有意义）
-- 大小写敏感：`MAX` / `MIN` 必须全大写；小写 `max` / `min` 作为标识符仍然合法（不冲突）
+- 大小写敏感：`MAX` / `MIN` 必须全大写；小写 `max` / `min` 只有在运行时把它们声明为引擎数值时才是合法裸名，不能作为作者 signal
 
 ##### compound
 
@@ -1077,7 +1129,7 @@ Remix Executor 输出标准 `.md` 文件，与 Dramatizer 产出完全一致。
         EASTON [relieved]: Can I sit?
         MALIA: You have two minutes.
         @affection easton +2
-        @signal int easton_approaches_accepted +1
+        @signal int EASTON_APPROACHES_ACCEPTED +1
         @butterfly "Accepted Easton's approach at the cafeteria"
       } @else {
         EASTON [hurt]: ...

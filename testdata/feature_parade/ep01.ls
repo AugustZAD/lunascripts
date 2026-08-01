@@ -112,8 +112,8 @@
         NARRATOR: [T20b] @butterfly recorded (content-gen only, not gate routing).
         @signal mark EP01_FACED_EASTON
         NARRATOR: [T20c] @signal mark EP01_FACED_EASTON written to flag store.
-        @signal int easton_approaches_accepted +1
-        NARRATOR: [T20c2] @signal int easton_approaches_accepted +1 applied.
+        @signal int EASTON_APPROACHES_ACCEPTED +1
+        NARRATOR: [T20c2] @signal int EASTON_APPROACHES_ACCEPTED +1 applied.
         @achievement EYE_CONTACT {
           name: "Eye Contact"
           rarity: uncommon
@@ -127,8 +127,8 @@
         @affection easton -1
         NARRATOR: [T20d] @affection -1 (negative delta) applied.
         @butterfly "Lost nerve facing Easton"
-        @signal int rejections +1
-        NARRATOR: [T20d2] @signal int rejections +1 — counts failed approaches.
+        @signal int REJECTIONS +1
+        NARRATOR: [T20d2] @signal int REJECTIONS +1 — counts failed approaches.
       }
     }
     @option B safe "[T22-safe] Have Mark intervene (tests safe option, no check)." {
@@ -227,8 +227,8 @@
   // ================================================================
   NARRATOR: [T29] Gate routing preview — conditions evaluated top-to-bottom; the FIRST match decides @next / @end target.
 
-  @if (rejections >= 3) {
-    NARRATOR: [T29a → @end bad_ending] @signal int counter rejections >= 3 matched → will TERMINATE the story with bad_ending (gate @end leaf, not @next).
+  @if (REJECTIONS >= 3) {
+    NARRATOR: [T29a → @end bad_ending] @signal int COUNTER REJECTIONS >= 3 matched → will TERMINATE the story with bad_ending (gate @end leaf, not @next).
   } @else @if (A.fail) {
     NARRATOR: [T29b → main/bad/001:01] choice condition A.fail matched → will jump to bad01.md
   } @else @if (EP01_DEFLECTED) {
@@ -246,7 +246,7 @@
   // 真正的 gate（与上方预告逻辑完全一致，条件顺序 1:1 对应）
   // 演示 @end 与 @next 在同一 gate 内混合
   @gate {
-    @if (rejections >= 3):
+    @if (REJECTIONS >= 3):
       @end bad_ending
     @else @if (A.fail):
       @next main/bad/001:01
