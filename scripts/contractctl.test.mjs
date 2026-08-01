@@ -51,9 +51,25 @@ test("continue dry-run is mutation-free and does not require approval", async ()
 
 test("continue refuses real execution without exact confirmation", async () => {
   const output = io();
+  const record = {
+    schemaVersion: 1,
+    state: "awaiting_approval",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    audit: { status: "passed", blockers: 0, repairRecommended: 0 },
+  };
   const code = await main(
     ["rollout", "continue", "https://github.com/cdotlock/lunascripts/pull/2"],
-    { github: {}, io: output },
+    {
+      github: {
+        readRolloutRecord: () => record,
+        getPullRequest: () => ({ headSha: SHA, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] }),
+      },
+      io: output,
+    },
   );
   assert.equal(code, 2);
   assert.match(output.stderr.join("\n"), /APPROVE_CONTRACT_ROLLOUT/);

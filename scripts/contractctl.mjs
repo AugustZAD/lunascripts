@@ -7,8 +7,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createCommandRunner } from "./contract-rollout/command.mjs";
 import { approvalDigest, isContractImpactingPath } from "./contract-rollout/core.mjs";
+import { executeRollout } from "./contract-rollout/execution.mjs";
 import { createGitHubClient, parsePullRequestUrl } from "./contract-rollout/github.mjs";
 import { applyAuditReport, prepareRollout } from "./contract-rollout/preparation.mjs";
+import { createExecutionActions } from "./contract-rollout/runtime.mjs";
 
 const DEFAULT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONFIRM = "APPROVE_CONTRACT_ROLLOUT";
@@ -78,20 +80,37 @@ async function statusCommand(url, args, deps) {
 
 async function continueCommand(url, args, deps) {
   const dryRun = has(args, "--dry-run");
-  if (!dryRun && option(args, "--confirm") !== CONFIRM) {
+  const status = loadFreshStatus(url, deps.github);
+  const firstApproval = status.record.state === "awaiting_approval";
+  const durableResume = new Set(["executing", "production_verified"]).has(status.record.state) && status.record.approval?.digest;
+  if (!dryRun && firstApproval && option(args, "--confirm") !== CONFIRM) {
     deps.io.err(`Refusing production-changing execution without --confirm ${CONFIRM}.`);
     return 2;
   }
-  const status = loadFreshStatus(url, deps.github);
-  if (status.record.state !== "awaiting_approval") throw new Error(`rollout state must be awaiting_approval, found ${status.record.state}`);
-  if (status.record.audit.status !== "passed" || status.record.audit.blockers !== 0) throw new Error("stored-content audit is not ready");
-  if (!status.pulls.every(({ pr }) => allChecksGreen(pr))) throw new Error("not every pull request check is green");
+  if (!dryRun && !firstApproval && !durableResume) throw new Error(`rollout cannot continue from ${status.record.state}`);
+  if (firstApproval) {
+    if (status.record.audit.status !== "passed" || status.record.audit.blockers !== 0) throw new Error("stored-content audit is not ready");
+    if (!status.pulls.every(({ pr }) => allChecksGreen(pr))) throw new Error("not every pull request check is green");
+  }
   deps.io.out(`Execution plan for ${status.digest}: upstream merge -> canonical repin -> Backend merge/deploy/smoke -> IDE merge.`);
   if (dryRun) {
     deps.io.out("No changes were made (dry-run).");
     return 0;
   }
-  throw new Error("confirmed execution adapter is not installed yet; no changes were made");
+  const upstream = parsePullRequestUrl(url);
+  const actions = deps.actions ?? createExecutionActions({ github: deps.github, runner: deps.runner });
+  const result = await executeRollout({
+    record: status.record,
+    confirmed: true,
+    actions,
+    persist: async (record) => deps.github.upsertRolloutComment(upstream.repository, upstream.number, record),
+  });
+  if (result.state === "complete") {
+    deps.io.out("Contract rollout complete: Backend production is verified and the IDE source PR is merged. No IDE installer release was started.");
+    return 0;
+  }
+  deps.io.err(`Contract rollout stopped in ${result.state}; inspect the rollout comment before continuing.`);
+  return 1;
 }
 
 async function prepareCommand(url, args, deps) {
@@ -142,7 +161,7 @@ export async function main(argv = process.argv.slice(2), provided = {}) {
   const root = provided.root ?? DEFAULT_ROOT;
   const runner = provided.runner ?? createCommandRunner();
   const github = provided.github ?? createGitHubClient(runner);
-  const deps = { io, root, runner, github };
+  const deps = { io, root, runner, github, actions: provided.actions };
   try {
     if (argv[0] !== "rollout") throw new Error("usage: contractctl rollout <validate|prepare|status|continue>");
     const command = argv[1];

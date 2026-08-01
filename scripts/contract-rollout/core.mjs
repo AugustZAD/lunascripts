@@ -131,6 +131,12 @@ export function validateRolloutRecord(record) {
       throw new Error(`audit.${key} must be a non-negative integer`);
     }
   }
+  if (record.approval?.digest && !/^sha256:[0-9a-f]{64}$/.test(record.approval.digest)) {
+    throw new Error("approval.digest must be a sha256 digest");
+  }
+  if (record.execution?.stage && typeof record.execution.stage !== "string") {
+    throw new Error("execution.stage must be a string");
+  }
   return record;
 }
 

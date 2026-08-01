@@ -68,6 +68,12 @@ export function createGitHubClient(runner) {
       return json(["api", "user"], "GitHub user").login;
     },
 
+    getBranchSha(repository, branch = "main") {
+      const value = json(["api", `repos/${repository}/commits/${branch}`], "GitHub branch commit");
+      if (!/^[0-9a-f]{40}$/.test(value.sha ?? "")) throw new Error(`${repository}:${branch} did not resolve a full SHA`);
+      return value.sha;
+    },
+
     getPullRequest(repository, number) {
       const pr = json([
         "pr",
@@ -120,6 +126,20 @@ export function createGitHubClient(runner) {
 
     listPullRequestChecks(repository, number) {
       return client.getPullRequest(repository, number).checks;
+    },
+
+    waitPullRequestChecks(repository, number, expectedHeadSha, timeoutMs = 30 * 60_000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const pr = client.getPullRequest(repository, number);
+        if (pr.headSha !== expectedHeadSha) throw new Error(`${repository} PR head changed while checks were running`);
+        const checks = pr.checks;
+        const failed = checks.find((check) => check.status === "completed" && check.conclusion !== "success");
+        if (failed) throw new Error(`${repository} check failed: ${failed.name}`);
+        if (checks.length > 0 && checks.every((check) => check.status === "completed" && check.conclusion === "success")) return pr;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000);
+      }
+      throw new Error(`${repository} pull request checks timed out`);
     },
 
     readRolloutRecord(repository, number) {
