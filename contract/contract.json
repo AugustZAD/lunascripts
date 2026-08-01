@@ -1,6 +1,7 @@
 {
   "$schema": "./contract-manifest.schema.json",
   "contract_version": "2.0.0",
+  "change_class": "major",
   "episode_schema": "episode.schema.json",
   "source_spec": "../LS-SPEC.md",
   "json_output_spec": "../docs/JSON-OUTPUT.md",
@@ -14,5 +15,12 @@
     "breaking": true,
     "legacy_unversioned_episode_json": "consumer migration concern; v2 compiler output is always versioned",
     "migration": "rename every author-defined signal mark/int and its readers to SCREAMING_SNAKE_CASE"
+  },
+  "rollout": {
+    "consumer_repositories": [
+      "cdotlock/lunaverse-backend",
+      "cdotlock/lunaverse-ide"
+    ],
+    "stored_content_policy": "audit_only"
   }
 }
