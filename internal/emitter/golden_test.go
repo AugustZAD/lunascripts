@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TestGoldenEp01 is disabled until testdata/ep01.ls and testdata/ep01_output.json
+// TestGoldenEp01 is disabled until testdata/ep01.ls.md and testdata/ep01_output.json
 // are migrated to the new AST + LS spec. The existing testdata files still
 // use the old syntax (@... show ... at left, &music play, @phone hide,
 // @malia hide, etc.) and the old output shape (positions on char_show,

@@ -2,7 +2,7 @@
 name: ls-scriptwriting
 description: >
   How to write correct Lunascripts (LS) for MobAI interactive visual novels.
-  Use this skill whenever generating, editing, or reviewing .md script files for
+  Use this skill whenever generating, editing, or reviewing .ls script files for
   the MobAI game engine — including Dramatizer output, Remix Executor output,
   or manual script authoring. Triggers on: LS scripts, episode scripts,
   visual novel scripts, game scripts, Dramatizer output formatting,
@@ -12,7 +12,7 @@ description: >
 
 # Writing Lunascriptss
 
-You are generating scripts for a mobile interactive visual novel player. The genre is **TRPG mechanics + Galgame presentation**: players read through dialogue-driven scenes with character sprites and backgrounds (Galgame), and at key beats make choices that resolve via D20 attribute checks against a difficulty class (TRPG). Body-interaction beats (`@trick`) and optional embedded games (`@minigame`) punctuate the reading. Each `.md` script file is one episode — a self-contained narrative unit with dialogue, visual staging, game mechanics, and routing to the next episode.
+You are generating scripts for a mobile interactive visual novel player. The genre is **TRPG mechanics + Galgame presentation**: players read through dialogue-driven scenes with character sprites and backgrounds (Galgame), and at key beats make choices that resolve via D20 attribute checks against a difficulty class (TRPG). Body-interaction beats (`@trick`) and optional embedded games (`@minigame`) punctuate the reading. Each `.ls` script file is one episode — a self-contained narrative unit with dialogue, visual staging, game mechanics, and routing to the next episode.
 
 The player experiences this as: tap to read dialogue → see one character at a time on screen (MC pinned left, others pinned right by the engine) → occasionally complete a forced body action (tap / hold / swipe / shake / swing / tilt) → occasionally skip-or-play a downstream-generated mini-game → at key beats make a choice that may roll dice → episode ends and routes to the next one.
 
@@ -20,7 +20,7 @@ Your scripts will be parsed by a Go interpreter that outputs JSON for the fronte
 
 ## File Basics
 
-- Extension: `.md`
+- Extension: `.ls`
 - Encoding: UTF-8
 - Comments: `//` at line start
 - Strings: double quotes `"..."`
@@ -241,7 +241,8 @@ The phone overlay sits on top of everything. Keep messages short — they render
 }
 ```
 
-- `@phone { ... }` pops the phone overlay; the block end automatically dismisses it. There is no `@phone hide`.
+- `@phone { ... }` pops the phone overlay; it must be written as a multiline block, and the block end automatically dismisses it. There is no `@phone hide`.
+- Every `@text from/to` inside `@phone` is silent UI text. It never requests or requires character voice audio.
 - `@text from <CHAR>: content` — incoming message (gray bubble, left).
 - `@text to <CHAR>: content` — outgoing message (blue bubble, right).
 

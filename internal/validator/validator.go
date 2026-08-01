@@ -157,11 +157,11 @@ func Validate(ep *ast.Episode) []Error {
 	checkValues(ep.Body, &errs)
 
 	// Validate condition trees (body @if and @gate routes).
-	checkConditions(ep.Body, &errs)
+	checkConditions(ep.Body, false, &errs)
 	if ep.Gate != nil {
 		for _, route := range ep.Gate.Routes {
 			if route.Condition != nil {
-				checkCondition(route.Condition, &errs)
+				checkCondition(route.Condition, false, &errs)
 			}
 		}
 	}
@@ -349,27 +349,29 @@ var validOperandKinds = map[string]bool{
 }
 
 // checkConditions walks nodes and validates every Condition tree it finds.
-func checkConditions(nodes []ast.Node, errs *[]Error) {
+// check.success/check.fail are context-local and may only appear while walking
+// the body of the brave option that owns the current D20 result.
+func checkConditions(nodes []ast.Node, allowCheck bool, errs *[]Error) {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.IfNode:
 			if v.Condition != nil {
-				checkCondition(v.Condition, errs)
+				checkCondition(v.Condition, allowCheck, errs)
 			}
-			checkConditions(v.Then, errs)
-			checkConditions(v.Else, errs)
+			checkConditions(v.Then, allowCheck, errs)
+			checkConditions(v.Else, allowCheck, errs)
 		case *ast.ChoiceNode:
 			for _, opt := range v.Options {
-				checkConditions(opt.Body, errs)
+				checkConditions(opt.Body, opt.Mode == "brave", errs)
 			}
 		case *ast.PhoneShowNode:
-			checkConditions(v.Body, errs)
+			checkConditions(v.Body, allowCheck, errs)
 		}
 	}
 }
 
 // checkCondition validates a single Condition AST node recursively.
-func checkCondition(c ast.Condition, errs *[]Error) {
+func checkCondition(c ast.Condition, allowCheck bool, errs *[]Error) {
 	switch v := c.(type) {
 	case *ast.ChoiceCondition:
 		if !validChoiceResults[v.Result] {
@@ -409,14 +411,20 @@ func checkCondition(c ast.Condition, errs *[]Error) {
 			})
 		}
 		if v.Left != nil {
-			checkCondition(v.Left, errs)
+			checkCondition(v.Left, allowCheck, errs)
 		}
 		if v.Right != nil {
-			checkCondition(v.Right, errs)
+			checkCondition(v.Right, allowCheck, errs)
 		}
 	case *ast.FlagCondition:
 		// No further structural checks — any non-empty flag name is fine.
 	case *ast.CheckCondition:
+		if !allowCheck {
+			*errs = append(*errs, Error{
+				Code:    InvalidCondition,
+				Message: "check.success/check.fail is only valid inside a brave option body",
+			})
+		}
 		if v.Result != "success" && v.Result != "fail" {
 			*errs = append(*errs, Error{
 				Code:    InvalidCondition,

@@ -57,11 +57,11 @@ JSON normalizes `character` to lowercase (`MAURICIO:` → `"mauricio"`).
 
 | Directive | Example |
 |-----------|---------|
-| `@phone { @text from/to <CHAR>: "<text>" }` | Phone block. **No `@phone show` / `@phone hide`** — the block delimits the entire overlay lifetime |
+| `@phone {`<br>`  @text from/to <CHAR>: <text>`<br>`}` | Multiline phone block. Phone messages are silent UI text and never request voice audio. **No `@phone show` / `@phone hide`** — the block delimits the entire overlay lifetime |
 | `@text from <CHAR>: text` | `@text from EASTON: I miss you.` — incoming (grey, left) |
 | `@text to <CHAR>: text` | `@text to MAURICIO: Leave me alone.` — outgoing (blue, right) |
 
-Whitelist: **only `@text from/to` is allowed inside `@phone { }`.** No dialogue, no `@sfx`, no `@affection`, no `@signal`, nothing else. Push state changes or audio outside the block.
+Whitelist: **only `@text from/to` is allowed inside a multiline `@phone { }` block.** The opening brace, messages, and closing brace cannot share one line. Phone messages are silent UI text. No dialogue, no `@sfx`, no `@affection`, no `@signal`, nothing else. Push state changes or audio outside the block.
 
 ## Interaction
 

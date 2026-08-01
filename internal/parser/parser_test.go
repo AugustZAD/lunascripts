@@ -788,6 +788,19 @@ func TestParsePhone(t *testing.T) {
 	}
 }
 
+func TestParsePhoneRejectsSingleLineBlockWithDirectMessage(t *testing.T) {
+	_, err := parseSource(`@episode main:01 "Phone" {
+	@phone { @text from easton: Hey are you free? }
+	@gate { @next main:02 }
+}`)
+	if err == nil {
+		t.Fatal("expected single-line @phone block to fail")
+	}
+	if !strings.Contains(err.Error(), "must be written as a multiline block") {
+		t.Fatalf("expected direct multiline guidance, got: %v", err)
+	}
+}
+
 // TestParsePhoneRejectsNonTextChild verifies the @phone whitelist rejects any
 // child directive other than @text.
 func TestParsePhoneRejectsNonTextChild(t *testing.T) {

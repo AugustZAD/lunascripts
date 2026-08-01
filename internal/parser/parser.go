@@ -17,7 +17,7 @@ import (
 var knownKeywords = map[string]bool{
 	"bg": true, "cg": true, "phone": true, "text": true,
 	"music": true, "sfx": true, "minigame": true, "trick": true,
-	"choice": true,
+	"choice":    true,
 	"affection": true, "signal": true,
 	"butterfly": true, "if": true, "else": true,
 	"episode":     true,
@@ -437,7 +437,7 @@ func (p *Parser) parseDirective() (ast.Node, error) {
 
 // parseBg parses: @bg set <name> [transition]
 func (p *Parser) parseBg() (ast.Node, error) {
-	p.advance() // consume "bg"
+	p.advance()                                      // consume "bg"
 	if _, err := p.expect(token.IDENT); err != nil { // consume "set"
 		return nil, err
 	}
@@ -480,8 +480,13 @@ func (p *Parser) parseCg() (ast.Node, error) {
 // Anything else is a parse error.
 func (p *Parser) parsePhoneBlock() (ast.Node, error) {
 	p.advance() // consume "phone"
-	if _, err := p.expect(token.LBRACE); err != nil {
+	openingBrace, err := p.expect(token.LBRACE)
+	if err != nil {
 		return nil, err
+	}
+	if p.cur.Type != token.RBRACE && p.cur.Type != token.EOF && p.cur.Line == openingBrace.Line {
+		return nil, fmt.Errorf("line %d col %d: @phone must be written as a multiline block; put each @text from/to message on its own line",
+			p.cur.Line, p.cur.Col)
 	}
 
 	node := &ast.PhoneShowNode{}

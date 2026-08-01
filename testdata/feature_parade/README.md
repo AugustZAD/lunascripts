@@ -38,8 +38,8 @@ feature_parade/
 make build
 
 # 单文件
-bin/lsc validate testdata/feature_parade/ep01.ls --assets testdata/feature_parade/mapping.json
-bin/lsc compile  testdata/feature_parade/ep01.ls --assets testdata/feature_parade/mapping.json -o /tmp/ep01.json
+bin/lsc validate testdata/feature_parade/ep01.ls.md --assets testdata/feature_parade/mapping.json
+bin/lsc compile  testdata/feature_parade/ep01.ls.md --assets testdata/feature_parade/mapping.json -o /tmp/ep01.json
 
 # 全部重生成 golden
 for f in ep01 ep02 bad01 cont01 stress; do

@@ -110,6 +110,57 @@ func TestValidBraveOptionPass(t *testing.T) {
 	}
 }
 
+func TestCheckConditionScope(t *testing.T) {
+	tests := []struct {
+		name string
+		body []ast.Node
+		gate *ast.GateBlock
+	}{
+		{
+			name: "top-level body",
+			body: []ast.Node{&ast.IfNode{
+				Condition: &ast.CheckCondition{Result: "success"},
+				Then:      []ast.Node{&ast.NarratorNode{Text: "Invalid."}},
+			}},
+			gate: unconditionalGate("main:02"),
+		},
+		{
+			name: "safe option body",
+			body: []ast.Node{&ast.ChoiceNode{Options: []*ast.OptionNode{{
+				ID: "A", Mode: "safe", Text: "Wait",
+				Body: []ast.Node{&ast.IfNode{
+					Condition: &ast.CheckCondition{Result: "fail"},
+					Then:      []ast.Node{&ast.NarratorNode{Text: "Invalid."}},
+				}},
+			}}}},
+			gate: unconditionalGate("main:02"),
+		},
+		{
+			name: "gate route",
+			body: []ast.Node{&ast.NarratorNode{Text: "End."}},
+			gate: &ast.GateBlock{Routes: []*ast.GateRoute{
+				{Condition: &ast.CheckCondition{Result: "success"}, Leaf: &ast.NextLeaf{Target: "main:02"}},
+				{Leaf: &ast.EndLeaf{Type: ast.EndingComplete}},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := Validate(&ast.Episode{BranchKey: "main:01", Title: "T", Body: tt.body, Gate: tt.gate})
+			found := false
+			for _, err := range errs {
+				if err.Code == InvalidCondition && strings.Contains(err.Message, "only valid inside a brave option body") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected scoped INVALID_CONDITION error, got %v", errs)
+			}
+		})
+	}
+}
+
 func TestDuplicateOptionID(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01", Title: "T",

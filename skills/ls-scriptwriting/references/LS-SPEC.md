@@ -6,9 +6,9 @@
 
 ## 1. 设计目标
 
-1. **单一格式统一叙事与游戏机制**：一个 `.md` 文件既是剧情脚本也是数值定义
+1. **单一格式统一叙事与游戏机制**：一个 `.ls` 文件既是剧情脚本也是数值定义
 2. **自包含**：每个文件包含一集所需的全部信息，不依赖外部清单
-3. **LLM 友好**：Dramatizer 和 Remix Executor 都由 LLM 生成此格式，语法对 LLM 自然、无认知负担
+3. **LLM 友好**：Lunaverse Agent 生成和编辑此格式，语法对 LLM 自然、无认知负担
 4. **高效解析**：Go 单二进制解释器消费，输出结构化 JSON 供前端播放器使用
 5. **素材解耦**：脚本只写语义名，解释器通过独立的素材映射表翻译为 OSS URL
 
@@ -18,15 +18,15 @@
 
 ### 2.1 文件粒度
 
-一个 `.md` 文件 = 一集。Dramatizer 按集输出，Remix Executor 按集或按选择后片段输出。
+一个 `.ls` 文件 = 一集。Lunaverse Agent 按集创建和编辑，局部改写后仍保存为完整合法的 `.ls` 集文件。
 
 ### 2.2 文件后缀
 
-使用 `.md` 而非自定义后缀。虽然内容不是标准 Markdown,但 `.md` 随处可打开、GitHub 可预览、无需自定义编辑器支持。
+使用 `.ls` 后缀。文件是 UTF-8 纯文本，可由 Lunaverse IDE 或普通文本编辑器打开。
 
 ### 2.3 文件命名
 
-对齐 Dramatizer 的 episode_id 寻址体系,路径即 ID:
+对齐 `episode_id` 寻址体系，路径即 ID：
 
 ```
 novel_<id>/
@@ -107,8 +107,8 @@ UTF-8，换行符 `\n`。
 - **MC**（玩家扮演的角色）固定在屏幕**左侧**
 - **其余角色**全部固定在屏幕**右侧**
 - **同屏一人**——任意时刻最多一个角色显示
-- 谁说话谁显示，前一个自动消失
-- `NARRATOR` / `YOU` 出现时清屏（无角色立绘）
+- 谁有台词谁显示（YOU 行显示 MC），前一个自动消失；没有台词支撑的立绘指令会被吞掉
+- `NARRATOR` 出现时清空所有立绘（无角色立绘）；`YOU` 和角色台词出现时有立绘
 
 引擎在运行时知道谁是 MC（从 gamestate 注入），编译产物**不携带 MC 身份信息**——LS 对小说哪个角色是 MC 完全 agnostic，由前端业务层注入。
 
@@ -259,18 +259,32 @@ gate 块内的条件出口规则。括号 `()` 必需。条件类型见 §4.8。
 
 **`@cg <name> "<content>"`** — 全屏 CG 展示（leaf 指令）
 
-CG 由下游 agent-forge 渲染为短视频。脚本只声明 CG 的语义名和叙事 prose——管线从 prose 决定镜头时长、转场和画面强调。
-
-```
-@cg window_stare "The camera opens on Malia's silhouette against the rain-streaked window. Slow push-in on her eyes — one tear tracks down, catching the cold blue of the skyline. Her reflection doubles her, ghost-like, in the glass."
-```
+CG 的最终交付可以是静态图、视频或动态漫画。脚本只声明 CG 的语义名和形态中立的叙事 prose；具体形态由生产阶段选择。
 
 - `<name>`：素材句柄。生成完后 URL 填进 `assets.cg.<name>`
-- `<content>`：英文连续叙述。讲清楚镜头怎么走、画面强调什么、情节如何展开。**不要辞藻**（不写"诗意地"、"唯美地"），只讲清楚发生了什么。
+- `<content>`：**英文**现在时场景描写（与 SKILL.md"语言:全英文"硬性规则一致；仅当用户明确要求中文写剧本时才用中文）。**不要辞藻**（不写 "poetically" / "hauntingly beautiful" 这类修饰），只讲清楚人物、场景、动作和剧情关联，不在 LS 中锁死时长或输出形态。
+
+**写法要求——可生产的事件描述**：
+
+不要只写抽象情绪或通用意境。按事件发生顺序写清可见的人物动作、神态、站位和关键道具，使静态图、视频或动态漫画都能从同一段剧情描述继续生产：
+
+```
+❌ 概括式
+@cg dinner_first_night "A dim kitchen at night. Three men sit in their usual places while a girl stands in the doorway with her suitcase."
+
+✅ 分镜式
+@cg dinner_first_night "@seren drags her suitcase into @bg voss_house_kitchen_evening. A single dim bulb. An old wooden table — three mismatched place settings. A fourth chair pushed back against the wall. @knox stands at the stove, back to the room, plate in hand, eyes pinned on his bowl. @liam leans back in his chair, cap on backwards, fingers tapping the table edge, half a smile. @dean sits at the head of the table, sharp blue eyes cutting to the doorway. The suitcase drags a gray scar across the floor. Four people, four corners."
+```
+
+**`@角色名` 和 `@bg` 标签嵌在描述里**：在角色出场的那句镜头里自然写入 `@角色名`，在场景建立镜头里写入 `@bg <bg_name>`。不要把标签堆在开头当前缀。角色在 CG 内从一个场景移动到另一个场景时，按出现顺序写多个 `@bg`（例：`@seren backs out of @bg voss_house_dean_study, down the length of @bg voss_house_hallway_evening...`）。`@bg` 名必须来自资产表，不要自造。
+
+**视频形态的 CG（plan 标注或在 IDE 里切为视频）**：生产前必须把形态中立描述精修为 `08-cg-production/prompts/video/<safe-cg-name>.md`。该文件只放视频专属描述，不放风格头、模型、时长、比例、分辨率、引用 URL/列表或 videoctl YAML；宿主随后只拼一次当前风格的 `cg-video` 模板。文件缺失或相对原始描述已过期时，必须先补写并保存，禁止发起付费视频生成。
+
+视频专属描述围绕**一个主要机位**组织动作并明确镜头行为：固定机位写清 `no dolly, no zoom, no pan`；运动机位最多一个主要运动。用可见的身体反应代替抽象情绪；POV 必须无歧义；剧情关键道具单独成句；避免可读文字和淡出全黑；已有精确服装参考图时不要重复服装。不要增加时长限制。声音合同固定为**无配乐，仅保留同期声**：允许环境声、动作声和现场同期声，禁止 BGM。
 
 **语法约束**：
 - 叶子指令，无 `{ }` body
-- 与 `@minigame` 完全对称：`@<原语> <name> "<prose>"` → 下游 agent 生成
+- 与 `@minigame` **语法形态**对称（`@<原语> <name> "<prose>"` → 下游 agent 生成）；内容写法不同——minigame 是英文单句，CG 是多句分镜
 
 ---
 
@@ -285,10 +299,10 @@ YOU: He hasn't called me that in eight years.
 ```
 
 - **`CHARACTER:`** — 角色对白。说话时角色自动显示（用上次 pose 或当前 pose）；与上一个说话者不同时自动切换
-- **`NARRATOR:`** — 旁白，第三人称视角。出现时**清屏**（所有角色立绘消失）
-- **`YOU:`** — MC 内心独白。出现时**清屏**
+- **`NARRATOR:`** — 旁白，MC 视角但有叙事距离。指代 MC 用**大写 YOU / YOUR / YOURS**，不用 she / her / hers 或 她（详见 SKILL.md）。出现时**清屏**（所有角色立绘消失）
+- **`YOU:`** — MC 内心独白，第一人称（我）。**显示 MC 立绘**（`YOU:` 前声明 `@<mc_char> <look>`）
 
-`NARRATOR` 和 `YOU` 视觉效果相同（无立绘的对话框），区别在叙事口吻：`NARRATOR` 是上帝视角描述，`YOU` 是 MC 内心思考。
+`NARRATOR` 和 `YOU` 视觉效果**不同**：`NARRATOR` 清屏（无立绘），`YOU` 显示 MC 立绘。区别在叙事口吻：`NARRATOR` 是 MC 视角、有距离感的观察与描述（指代 MC 用大写 YOU），`YOU` 是 MC 此刻的内心思考（第一人称 我）。因此立绘指令应放在 `YOU` 或角色台词行之前，不要放在 `NARRATOR` 行之前（会被清掉、白写）。
 
 **语法糖：pose 变换 + 对白一行完成**
 
@@ -350,7 +364,7 @@ LS 把"打断剧情让玩家做点什么"拆成四个边界清晰的原语：
 | `@trick` | 强制卡关 | 无 | 无 | 无 | 引擎原生（触摸 / 运动） |
 | `@minigame` | 可选·可跳 | 无 | 有（引擎侧） | 无 | WebView，下游 agent 生成 |
 | `@choice` + `brave`/`safe` | 强制 | D20 / 无 | — | 有（真分支） | 引擎原生 |
-| `@cg` | — | — | — | — | 下游视频生成 |
+| `@cg` | — | — | — | — | 下游按所选形态生成静态图、视频或动态漫画 |
 
 #### 4.6.1 `@trick <type> "<prompt>"` — 嵌入式 trick
 
@@ -415,7 +429,7 @@ LS 把"打断剧情让玩家做点什么"拆成四个边界清晰的原语：
 - **奖励全在引擎侧**——脚本不写金额、不写消耗。引擎根据 H5 回传的分数缩放奖励（反作弊在此），脚本保持精简。
 - **跳过 = 整条 `@minigame` 当 no-op**，从其后继续，无奖励。
 
-**describe 的质量靠 SKILL 层**：写 describe 的 Dramatizer 必须知道 vibe-coding agent 能生成多复杂的游戏——这套"可生成玩法、复杂度上限"的指引放进喂给 Dramatizer 的 prompt（详见 `skills/ls-scriptwriting/SKILL.md` 的 Mini-games 节），**不进 LS 语法**。
+**describe 的质量靠 Skill 层**：写 describe 的创作 Skill 必须知道小游戏生产能力与复杂度上限；这些创作指引属于对应 Skill，**不进 LS 语法**。
 
 #### 4.6.3 `@choice { }` — 强制选择 + D20
 
@@ -505,7 +519,7 @@ D20 检定公式（引擎内置）：`D20(1-20) + 属性修正 >= DC → 成功`
 
 蝴蝶效应记录——记录玩家行为及其性格含义。
 
-**用途**：喂给下游内容生成 agent（**Remix Executor**、**Dream**），帮助生成器理解玩家性格画像，保持后续生成内容（remix、衍生剧情）与玩家行为模式的一致性。
+**用途**：供后续内容生成流程理解玩家性格画像，保持改写和衍生剧情与玩家行为模式的一致性。
 
 **不参与运行时路由判定**——gate 求值不读 butterfly 累积，所有路由依赖 signal mark、signal int、affection、choice history 这些确定性状态。
 
@@ -885,7 +899,7 @@ MAURICIO: Hey, Butterfly.
 
 脚本和素材映射**分离**：
 - 脚本只写语义名（如 `malias_bedroom_morning`、`neutral_smirk`）
-- 素材映射表是独立文件，由素材管线（Agent-Forge）生成维护
+- 素材映射表是独立文件，由 Lunaverse IDE 素材管线生成维护
 - 解释器将两者结合：`lsc compile script.ls --assets mapping.json -o output.json`
 
 分离的好处：
@@ -944,7 +958,7 @@ MAURICIO: Hey, Butterfly.
 | `@mauricio neutral_smirk` | `assets.characters.mauricio.neutral_smirk` | `{base_url}/characters/mauricio_neutral_smirk.png` |
 | `@music calm_morning` | `assets.music.calm_morning` | `{base_url}/music/calm_morning.mp3` |
 | `@sfx crowd_noise` | `assets.sfx.crowd_noise` | `{base_url}/sfx/crowd_noise.mp3` |
-| `@cg window_stare "..."` | `assets.cg.window_stare` | `{base_url}/cg/window_stare.mp4`（由 agent-forge 生成后填入） |
+| `@cg window_stare "..."` | `assets.cg.window_stare` | `{base_url}/cg/window_stare.webp` 或 `.mp4`（由所选生产形态决定） |
 | `@minigame qte_challenge "..."` | `assets.minigames.qte_challenge` | `{base_url}/minigames/qte_challenge/index.html`（由 vibe-coding agent 生成后填入） |
 | `@trick tap "..."` | — | 无素材（引擎原生） |
 
@@ -956,7 +970,7 @@ MAURICIO: Hey, Butterfly.
 
 ### 6.1 概述
 
-Go 单二进制工具 `ls`。
+Go 单二进制工具 `lsc`。
 
 ```bash
 lsc compile 01.ls --assets mapping.json -o ep01.json        # 单集编译
@@ -1020,7 +1034,7 @@ lsc validate 01.ls --assets mapping.json                     # 验证（不输�
 
 ### 7.1 Remix 输出格式
 
-Remix Executor 输出标准 `.md` 文件，与 Dramatizer 产出完全一致。
+改写流程输出标准 `.ls` 文件，与其他 canonical episode 文件格式完全一致。
 
 ### 7.2 两种生命周期
 
@@ -1200,12 +1214,12 @@ Remix Executor 输出标准 `.md` 文件，与 Dramatizer 产出完全一致。
 | `@<char> <pose> [transition]` | 角色显示/换 pose（首次=入场） |
 | `@<char> bubble <type>` | 气泡动画 |
 | `@bg set <name> [transition]` | 切背景 |
-| `@cg <name> "<content>"` | CG（leaf，下游 agent-forge 生成视频） |
+| `@cg <name> "<content>"` | CG（leaf，下游按所选形态生产） |
 | `CHARACTER: text` | 对白（自动显示说话角色） |
 | `CHARACTER [pose]: text` | 对白糖（等价于 `@character pose` + 对白） |
-| `NARRATOR: text` | 旁白（清屏） |
-| `YOU: text` | MC 内心独白（清屏） |
-| `@phone { @text from/to ... }` | 手机界面（块内只允许 `@text`） |
+| `NARRATOR: text` | 旁白（清空所有立绘） |
+| `YOU: text` | MC 内心独白（显示 MC 立绘） |
+| `@phone {`<br>`  @text from/to ...`<br>`}` | 手机界面（必须多行；块内只允许静音 UI 文本 `@text`，不触发配音） |
 | `@text from <char>: content` | 收到消息 |
 | `@text to <char>: content` | 发出消息 |
 | `@music <name>` | 播放 BGM（引擎自动 from-silence / crossfade） |
