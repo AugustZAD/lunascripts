@@ -1,0 +1,30 @@
+name: Contract authority and rollout
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test compiler and rollout controller
+        run: |
+          go test ./...
+          node --test scripts/contract-rollout/*.test.mjs scripts/contractctl.test.mjs
+      - name: Validate contract-impacting pull request metadata
+        if: ${{ github.event_name == 'pull_request' }}
+        run: node scripts/contractctl.mjs rollout validate --base '${{ github.event.pull_request.base.sha }}' --head '${{ github.event.pull_request.head.sha }}'

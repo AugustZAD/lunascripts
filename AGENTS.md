@@ -1,0 +1,9 @@
+# Lunaverse Scripts authority protocol
+
+- This repository is the only authority for LS syntax, compiler semantics, Episode JSON schemas, fixtures, contract versions, and compatibility notes. Consumer repositories must never invent or override those rules locally.
+- Any Agent changing a contract-impacting path must update the semantic contract version and changelog, open the upstream PR, then run `node scripts/contractctl.mjs rollout prepare <upstream-pr-url>`.
+- The initiating Agent owns the rollout conversation. It prepares and audits Backend/IDE PRs, presents one approval digest to its current operator, and only after one explicit approval may run the ordered merge/deploy sequence.
+- Stored production content is audit-only. The rollout may report affected episodes and suggested manual repairs, but must never mutate R2, Supabase, release manifests, or episode JSON.
+- Before traffic changes, failures pause for operator discussion. If a newly active deployment fails health, the workflow immediately restores the captured prior deployment before discussion.
+- If the current Agent lacks repository, workflow, environment, or merge permission, stop at that action and provide the resumable `contractctl` handoff command. Never copy, reveal, or bypass credentials and never force-push a rollout branch.
+- Backend production verification must complete before the IDE source PR merges. A successful rollout never starts an IDE installer or dual-platform release automatically.
