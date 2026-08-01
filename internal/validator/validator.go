@@ -417,7 +417,12 @@ func checkCondition(c ast.Condition, allowCheck bool, errs *[]Error) {
 			checkCondition(v.Right, allowCheck, errs)
 		}
 	case *ast.FlagCondition:
-		// No further structural checks — any non-empty flag name is fine.
+		if !validAuthorSignalName.MatchString(v.Name) {
+			*errs = append(*errs, Error{
+				Code:    InvalidSignalName,
+				Message: fmt.Sprintf("@if flag %q: author signal readers must use SCREAMING_SNAKE_CASE", v.Name),
+			})
+		}
 	case *ast.CheckCondition:
 		if !allowCheck {
 			*errs = append(*errs, Error{

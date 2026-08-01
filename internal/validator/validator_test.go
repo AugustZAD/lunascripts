@@ -875,6 +875,24 @@ func TestValidateAuthorSignalNamesUseScreamingSnakeCase(t *testing.T) {
 	}
 }
 
+func TestValidateSignalMarkReaderUsesScreamingSnakeCase(t *testing.T) {
+	ep := &ast.Episode{
+		BranchKey: "main:01",
+		Title:     "t",
+		Body: []ast.Node{&ast.IfNode{
+			Condition: &ast.FlagCondition{Name: "first_meeting"},
+			Then:      []ast.Node{&ast.NarratorNode{Text: "x"}},
+		}},
+		Gate: unconditionalGate("main:02"),
+	}
+	for _, err := range Validate(ep) {
+		if err.Code == InvalidSignalName {
+			return
+		}
+	}
+	t.Fatal("expected lowercase signal mark reader to be rejected")
+}
+
 func TestValidateSignalIntOK(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",

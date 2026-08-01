@@ -6,6 +6,7 @@
   "json_output_spec": "../docs/JSON-OUTPUT.md",
   "author_signal_name_pattern": "^[A-Z][A-Z0-9_]*$",
   "author_signal_name_style": "SCREAMING_SNAKE_CASE",
+  "mark_reader_name_pattern": "^[A-Z][A-Z0-9_]*$",
   "engine_value_namespace": "runtime-declared and read-only; lowercase names remain distinct from author signals",
   "valid_fixtures": "fixtures/valid",
   "invalid_fixtures": "fixtures/invalid",
