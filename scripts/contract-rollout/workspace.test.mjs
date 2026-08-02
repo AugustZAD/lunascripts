@@ -42,7 +42,7 @@ test("cleanup uses an explicit bounded native command", () => {
   assert.deepEqual(calls, [{
     command: "/bin/rm",
     args: ["-rf", "--", workspace],
-    options: { timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] },
+    options: { timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] },
   }]);
   rmSync(workspace, { recursive: true });
 });

@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 const PREFIX = "lunascripts-rollout-";
-const CLEANUP_TIMEOUT_MS = 30_000;
+// A consumer workspace can contain a complete IDE checkout plus generated
+// dependency/build trees. Keep cleanup bounded, but allow slow local disks and
+// antivirus/indexing enough time to remove that known-safe registered tree.
+const CLEANUP_TIMEOUT_MS = 120_000;
 const created = new Set();
 
 export function createRolloutWorkspace() {
