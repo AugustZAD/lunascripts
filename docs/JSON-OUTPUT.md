@@ -8,6 +8,7 @@
 
 ```json
 {
+  "ls_contract_version": "2.0.0",
   "episode_id": "main:01",
   "branch_key": "main",
   "seq": 1,
@@ -20,6 +21,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| `ls_contract_version` | string | 生成该 JSON 的 Lunaverse Script 契约版本；v2 固定为 `"2.0.0"` |
 | `episode_id` | string | 集的完整标识，格式 `<branch_key>:<seq>`，如 `"main:01"` |
 | `branch_key` | string | 分支路径，如 `"main"`、`"main/bad/001"`、`"remix/abc123"` |
 | `seq` | number | 集序号（从 1 开始） |
@@ -594,8 +596,8 @@ brave 和 safe 选项内容统一在 `steps` 字段下。brave 的成功/失败�
 
 ```json
 { "type": "signal", "kind": "mark", "event": "EP01_COMPLETE" }
-{ "type": "signal", "kind": "int", "name": "rejections", "op": "+", "value": 1 }
-{ "type": "signal", "kind": "int", "name": "rejections", "op": "=", "value": 0 }
+{ "type": "signal", "kind": "int", "name": "REJECTIONS", "op": "+", "value": 1 }
+{ "type": "signal", "kind": "int", "name": "REJECTIONS", "op": "=", "value": 0 }
 ```
 
 按 `kind` 分派字段：
@@ -609,10 +611,13 @@ brave 和 safe 选项内容统一在 `steps` 字段下。brave 的成功/失败�
 
 **int**：
 
+`name` 与 `mark.event` 使用同一作者命名规则：必须匹配
+`^[A-Z][A-Z0-9_]*$`。小写裸名留给运行时声明的只读引擎数值。
+
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `kind` | string | 是 | `"int"` |
-| `name` | string | 是 | 变量名（snake_case） |
+| `name` | string | 是 | 作者变量名（`SCREAMING_SNAKE_CASE`，匹配 `^[A-Z][A-Z0-9_]*$`） |
 | `op` | string | 是 | `"="` / `"+"` / `"-"` |
 | `value` | number | 是 | 整数。op=`=` 时可为负；op=`+`/`-` 时为非负 |
 
@@ -764,7 +769,7 @@ brave 和 safe 选项内容统一在 `steps` 字段下。brave 的成功/失败�
 
 ```json
 {"kind": "value", "name": "san"}
-{"kind": "value", "name": "rejections"}
+{"kind": "value", "name": "REJECTIONS"}
 ```
 
 | 字段 | 说明 |
@@ -801,7 +806,7 @@ brave 和 safe 选项内容统一在 `steps` 字段下。brave 的成功/失败�
   "kind": "min",
   "args": [
     {"kind": "affection", "char": "easton"},
-    {"kind": "value", "name": "rejections"},
+    {"kind": "value", "name": "REJECTIONS"},
     {"kind": "literal", "value": 10}
   ]
 }
@@ -929,7 +934,7 @@ JSON 输出：
 
 ```json
 "gate": {
-  "if": {"type": "comparison", "left": {"kind": "value", "name": "rejections"}, "op": ">=", "right": {"kind": "literal", "value": 3}},
+  "if": {"type": "comparison", "left": {"kind": "value", "name": "REJECTIONS"}, "op": ">=", "right": {"kind": "literal", "value": 3}},
   "end": "bad_ending",
   "else": {
     "if": {"type": "flag", "name": "HEROIC_END"},
@@ -1079,7 +1084,7 @@ Gate 中的条件使用与 body `@if` 相同的结构化 AST 格式（见 §4.8 
                 {"type": "dialogue", "character": "easton", "text": "Can I sit?"},
                 {"type": "dialogue", "character": "malia", "text": "You have two minutes."},
                 {"type": "affection", "character": "easton", "delta": 2},
-                {"type": "signal", "kind": "int", "name": "easton_approaches_accepted", "op": "+", "value": 1},
+                {"type": "signal", "kind": "int", "name": "EASTON_APPROACHES_ACCEPTED", "op": "+", "value": 1},
                 {"type": "butterfly", "description": "Accepted Easton's approach at the cafeteria"}
               ],
               "else": [

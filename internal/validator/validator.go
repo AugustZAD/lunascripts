@@ -3,6 +3,7 @@ package validator
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/cdotlock/lunascripts/internal/ast"
 )
@@ -20,6 +21,7 @@ const (
 	InvalidEndType             = "INVALID_END_TYPE"
 	InvalidCondition           = "INVALID_CONDITION"
 	InvalidSignalKind          = "INVALID_SIGNAL_KIND"
+	InvalidSignalName          = "INVALID_SIGNAL_NAME"
 	InvalidRarity              = "INVALID_RARITY"
 	AchievementMissingField    = "ACHIEVEMENT_MISSING_FIELD"
 	MinigameMissingDescription = "MINIGAME_MISSING_DESCRIPTION"
@@ -47,6 +49,11 @@ var validSignalKinds = map[string]bool{
 	ast.SignalKindMark: true,
 	ast.SignalKindInt:  true,
 }
+
+// validAuthorSignalName is the single source-language naming contract for
+// both persistent boolean marks and author-defined integer values. Lowercase
+// names remain available to engine-managed values (for example `san`).
+var validAuthorSignalName = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 // reservedKeywords are identifiers reserved by the LS language. They
 // may not be used as signal mark names, signal int names, or character
@@ -150,11 +157,11 @@ func Validate(ep *ast.Episode) []Error {
 	checkValues(ep.Body, &errs)
 
 	// Validate condition trees (body @if and @gate routes).
-	checkConditions(ep.Body, &errs)
+	checkConditions(ep.Body, false, &errs)
 	if ep.Gate != nil {
 		for _, route := range ep.Gate.Routes {
 			if route.Condition != nil {
-				checkCondition(route.Condition, &errs)
+				checkCondition(route.Condition, false, &errs)
 			}
 		}
 	}
@@ -239,6 +246,12 @@ func checkSignals(nodes []ast.Node, errs *[]Error) {
 			}
 			switch v.Kind {
 			case ast.SignalKindMark:
+				if !validAuthorSignalName.MatchString(v.Event) {
+					*errs = append(*errs, Error{
+						Code:    InvalidSignalName,
+						Message: fmt.Sprintf("@signal mark %q: author signal names must use SCREAMING_SNAKE_CASE (for example: FIRST_MEETING)", v.Event),
+					})
+				}
 				if reservedKeywords[v.Event] {
 					*errs = append(*errs, Error{
 						Code:    ReservedKeyword,
@@ -246,6 +259,12 @@ func checkSignals(nodes []ast.Node, errs *[]Error) {
 					})
 				}
 			case ast.SignalKindInt:
+				if !validAuthorSignalName.MatchString(v.Name) {
+					*errs = append(*errs, Error{
+						Code:    InvalidSignalName,
+						Message: fmt.Sprintf("@signal int %q: author signal names must use SCREAMING_SNAKE_CASE (for example: LOVE_POINTS)", v.Name),
+					})
+				}
 				if reservedKeywords[v.Name] {
 					*errs = append(*errs, Error{
 						Code:    ReservedKeyword,
@@ -330,27 +349,29 @@ var validOperandKinds = map[string]bool{
 }
 
 // checkConditions walks nodes and validates every Condition tree it finds.
-func checkConditions(nodes []ast.Node, errs *[]Error) {
+// check.success/check.fail are context-local and may only appear while walking
+// the body of the brave option that owns the current D20 result.
+func checkConditions(nodes []ast.Node, allowCheck bool, errs *[]Error) {
 	for _, n := range nodes {
 		switch v := n.(type) {
 		case *ast.IfNode:
 			if v.Condition != nil {
-				checkCondition(v.Condition, errs)
+				checkCondition(v.Condition, allowCheck, errs)
 			}
-			checkConditions(v.Then, errs)
-			checkConditions(v.Else, errs)
+			checkConditions(v.Then, allowCheck, errs)
+			checkConditions(v.Else, allowCheck, errs)
 		case *ast.ChoiceNode:
 			for _, opt := range v.Options {
-				checkConditions(opt.Body, errs)
+				checkConditions(opt.Body, opt.Mode == "brave", errs)
 			}
 		case *ast.PhoneShowNode:
-			checkConditions(v.Body, errs)
+			checkConditions(v.Body, allowCheck, errs)
 		}
 	}
 }
 
 // checkCondition validates a single Condition AST node recursively.
-func checkCondition(c ast.Condition, errs *[]Error) {
+func checkCondition(c ast.Condition, allowCheck bool, errs *[]Error) {
 	switch v := c.(type) {
 	case *ast.ChoiceCondition:
 		if !validChoiceResults[v.Result] {
@@ -390,14 +411,25 @@ func checkCondition(c ast.Condition, errs *[]Error) {
 			})
 		}
 		if v.Left != nil {
-			checkCondition(v.Left, errs)
+			checkCondition(v.Left, allowCheck, errs)
 		}
 		if v.Right != nil {
-			checkCondition(v.Right, errs)
+			checkCondition(v.Right, allowCheck, errs)
 		}
 	case *ast.FlagCondition:
-		// No further structural checks — any non-empty flag name is fine.
+		if !validAuthorSignalName.MatchString(v.Name) {
+			*errs = append(*errs, Error{
+				Code:    InvalidSignalName,
+				Message: fmt.Sprintf("@if flag %q: author signal readers must use SCREAMING_SNAKE_CASE", v.Name),
+			})
+		}
 	case *ast.CheckCondition:
+		if !allowCheck {
+			*errs = append(*errs, Error{
+				Code:    InvalidCondition,
+				Message: "check.success/check.fail is only valid inside a brave option body",
+			})
+		}
 		if v.Result != "success" && v.Result != "fail" {
 			*errs = append(*errs, Error{
 				Code:    InvalidCondition,

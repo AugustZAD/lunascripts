@@ -142,8 +142,8 @@ func TestDecompileRoundTrip(t *testing.T) {
 
   @affection easton +2
   @signal mark EP01_DONE
-  @signal int rejections = 0
-  @signal int rejections +1
+  @signal int REJECTIONS = 0
+  @signal int REJECTIONS +1
   &butterfly "Faced Easton without flinching."
   @achievement FACED_EASTON {
     name: "Eye Contact"
@@ -453,9 +453,9 @@ func TestDecompileGateSchemeBEnding(t *testing.T) {
 func TestDecompileComparisonOperandKinds(t *testing.T) {
 	source := `@episode main:01 "Operands" {
   @bg set classroom
-  @signal int rejections = 0
+  @signal int REJECTIONS = 0
 
-  @if (rejections >= 1) {
+  @if (REJECTIONS >= 1) {
     NARRATOR: value-kind operand.
   }
   @if (affection.easton > 2) {
@@ -487,12 +487,12 @@ func TestDecompileComparisonOperandKinds(t *testing.T) {
 	src := string(result.Episodes[0].Source)
 
 	wantForms := []string{
-		"rejections >= 1",                         // value
-		"affection.easton > 2",                    // affection
-		"san <= 50",                               // value (engine scalar)
+		"REJECTIONS >= 1",                        // value
+		"affection.easton > 2",                   // affection
+		"san <= 50",                              // value (engine scalar)
 		"MAX(affection.easton, affection.malia)", // max
-		"MIN(san, cha)",                           // min
-		"10 > affection.easton",                   // literal on left
+		"MIN(san, cha)",                          // min
+		"10 > affection.easton",                  // literal on left
 	}
 	for _, w := range wantForms {
 		if !bytes.Contains([]byte(src), []byte(w)) {
@@ -639,4 +639,3 @@ func assertJSONEqual(t *testing.T, expected, actual []byte) {
 		t.Fatalf("json mismatch\nexpected:\n%s\nactual:\n%s", expectedNorm, actualNorm)
 	}
 }
-

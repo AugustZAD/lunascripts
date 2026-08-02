@@ -57,11 +57,11 @@ JSON normalizes `character` to lowercase (`MAURICIO:` → `"mauricio"`).
 
 | Directive | Example |
 |-----------|---------|
-| `@phone { @text from/to <CHAR>: "<text>" }` | Phone block. **No `@phone show` / `@phone hide`** — the block delimits the entire overlay lifetime |
+| `@phone {`<br>`  @text from/to <CHAR>: <text>`<br>`}` | Multiline phone block. Phone messages are silent UI text and never request voice audio. **No `@phone show` / `@phone hide`** — the block delimits the entire overlay lifetime |
 | `@text from <CHAR>: text` | `@text from EASTON: I miss you.` — incoming (grey, left) |
 | `@text to <CHAR>: text` | `@text to MAURICIO: Leave me alone.` — outgoing (blue, right) |
 
-Whitelist: **only `@text from/to` is allowed inside `@phone { }`.** No dialogue, no `@sfx`, no `@affection`, no `@signal`, nothing else. Push state changes or audio outside the block.
+Whitelist: **only `@text from/to` is allowed inside a multiline `@phone { }` block.** The opening brace, messages, and closing brace cannot share one line. Phone messages are silent UI text. No dialogue, no `@sfx`, no `@affection`, no `@signal`, nothing else. Push state changes or audio outside the block.
 
 ## Interaction
 
@@ -79,11 +79,11 @@ Brave-option outcome branching: `@if (check.success) { } @else { }`. The `@else`
 |-----------|---------|
 | `@affection <char> <±N>` | `@affection easton +2` / `@affection mauricio -1` — adjust per-character affection (persistent across episodes) |
 | `@signal mark <NAME>` | `@signal mark HIGH_HEEL_EP05` — persistent boolean flag. Use sparingly; every mark must have a later reader (an `@if` branch or an achievement guard) |
-| `@signal int <name> <=\|+\|-> <N>` | `@signal int rejections +1` / `@signal int rejections -2` / `@signal int rejections = 0` — persistent integer counter. `+N` / `-N` require N >= 0; `= N` is unconditional assignment (N may be negative). First read defaults to 0 |
+| `@signal int <NAME> <=\|+\|-> <N>` | `@signal int REJECTIONS +1` / `@signal int REJECTIONS -2` / `@signal int REJECTIONS = 0` — persistent integer counter. Every author signal name matches `^[A-Z][A-Z0-9_]*$`; `+N` / `-N` require N >= 0; `= N` may be negative. First read defaults to 0 |
 | `@butterfly "<description>"` | `@butterfly "Accepted Easton's approach openly"` — content-generator hint. **Does NOT participate in gate routing** — only feeds Remix Executor / Dream so generators understand the player's personality |
 | `@achievement <id> { name / rarity / description }` | Inline achievement. The block carries metadata; reaching the node fires the unlock. Wrap in `@if (...)` for conditional triggers. `rarity` ∈ `uncommon` / `rare` / `epic` / `legendary` (no `common`); all three fields are required; bare `@achievement <id>` without a block is a parse error |
 
-Engine-managed numerics (e.g. `san`, `cha`, `hp`, `xp`) are read-only to scripts — you may reference them inside `@if`, but cannot mutate them. Author-defined integers via `@signal int` share the same bare-name read namespace.
+Engine-managed numerics (e.g. `san`, `cha`, `hp`, `xp`) are read-only to scripts — you may reference them inside `@if`, but cannot mutate them. Author-defined integers share the bare-name read namespace but use `SCREAMING_SNAKE_CASE`, while runtime-declared engine names retain their own casing.
 
 ## Conditions (5 kinds)
 
@@ -111,7 +111,7 @@ Both sides of a comparison are operands. Operands are integer-typed; the validat
 | max | `MAX(<op>, <op>, ...)` | `{kind:"max", args:[...]}` — **args >= 2** (1-arg MAX is a parse error). Args may be any operand kind, including nested `MAX` / `MIN` |
 | min | `MIN(<op>, <op>, ...)` | `{kind:"min", args:[...]}` — same rules as MAX |
 
-`MAX` and `MIN` are **reserved words** (uppercase only) — they are not valid signal names. **Lowercase** `max` / `min` are still legal identifiers (signal int names, engine values, etc.) and do not collide.
+`MAX` and `MIN` are **reserved words** — they are not valid signal names. Lowercase `max` / `min` may only be runtime-declared engine value names; they do not satisfy the author-signal contract.
 
 Examples:
 - `@if (affection.easton > affection.diego): @next main/route/easton:01` — variable-vs-variable
@@ -137,7 +137,7 @@ Minimal forms (no conditionals):
 Mixed conditional form (next / end side-by-side):
 ```
 @gate {
-  @if (rejections >= 3) { @end bad_ending }
+  @if (REJECTIONS >= 3) { @end bad_ending }
   @else if (HEROIC_END) { @end complete }
   @else { @next main:02 }
 }
@@ -184,7 +184,7 @@ These identifiers are unavailable as signal mark names, signal int names, or pos
 - Flow keywords: `if`, `else`, `next`, `end`, `gate`, `episode`, `choice`, `option`, `check`, `pause`
 - Option modes: `brave`, `safe`
 - Ending types: `complete`, `to_be_continued`, `bad_ending`
-- Aggregate functions: `MAX`, `MIN` (uppercase only — lowercase `max` / `min` are fine as identifiers)
+- Aggregate functions: `MAX`, `MIN` (uppercase only; lowercase variants are not valid author signal names)
 - Check namespace: `check`
 - D20 result tokens: `success`, `fail`, `any`
 

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cdotlock/lunascripts/contract/contract-manifest.schema.json",
+  "title": "Lunaverse Script contract manifest",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "change_class",
+    "episode_schema",
+    "source_spec",
+    "author_signal_name_pattern",
+    "compatibility",
+    "rollout"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "contract_version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+    "change_class": { "enum": ["patch", "minor", "major"] },
+    "episode_schema": { "type": "string", "minLength": 1 },
+    "source_spec": { "type": "string", "minLength": 1 },
+    "json_output_spec": { "type": "string", "minLength": 1 },
+    "author_signal_name_pattern": { "type": "string", "minLength": 1 },
+    "author_signal_name_style": { "type": "string", "minLength": 1 },
+    "mark_reader_name_pattern": { "type": "string", "minLength": 1 },
+    "engine_value_namespace": { "type": "string", "minLength": 1 },
+    "valid_fixtures": { "type": "string", "minLength": 1 },
+    "invalid_fixtures": { "type": "string", "minLength": 1 },
+    "compatibility": {
+      "type": "object",
+      "required": ["breaking", "legacy_unversioned_episode_json", "migration"],
+      "properties": {
+        "breaking": { "type": "boolean" },
+        "legacy_unversioned_episode_json": { "type": "string", "minLength": 1 },
+        "migration": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "rollout": {
+      "type": "object",
+      "required": ["consumer_repositories", "stored_content_policy"],
+      "properties": {
+        "consumer_repositories": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[^/]+/[^/]+$" }
+        },
+        "stored_content_policy": { "const": "audit_only" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

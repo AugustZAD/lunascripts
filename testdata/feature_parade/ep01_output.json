@@ -78,7 +78,7 @@
     "if": {
       "left": {
         "kind": "value",
-        "name": "rejections"
+        "name": "REJECTIONS"
       },
       "op": "\u003e=",
       "right": {
@@ -88,6 +88,7 @@
       "type": "comparison"
     }
   },
+  "ls_contract_version": "2.0.0",
   "seq": 1,
   "steps": [
     [
@@ -471,14 +472,14 @@
                 {
                   "id": "0076_sig",
                   "kind": "int",
-                  "name": "rejections",
+                  "name": "REJECTIONS",
                   "op": "+",
                   "type": "signal",
                   "value": 1
                 },
                 {
                   "id": "0077_nar",
-                  "text": "[T20d2] @signal int rejections +1 — counts failed approaches.",
+                  "text": "[T20d2] @signal int REJECTIONS +1 — counts failed approaches.",
                   "type": "narrator"
                 }
               ],
@@ -543,14 +544,14 @@
                 {
                   "id": "0066_sig",
                   "kind": "int",
-                  "name": "easton_approaches_accepted",
+                  "name": "EASTON_APPROACHES_ACCEPTED",
                   "op": "+",
                   "type": "signal",
                   "value": 1
                 },
                 {
                   "id": "0067_nar",
-                  "text": "[T20c2] @signal int easton_approaches_accepted +1 applied.",
+                  "text": "[T20c2] @signal int EASTON_APPROACHES_ACCEPTED +1 applied.",
                   "type": "narrator"
                 },
                 {
@@ -1043,7 +1044,7 @@
       "condition": {
         "left": {
           "kind": "value",
-          "name": "rejections"
+          "name": "REJECTIONS"
         },
         "op": "\u003e=",
         "right": {
@@ -1166,7 +1167,7 @@
       "then": [
         {
           "id": "0133_nar",
-          "text": "[T29a → @end bad_ending] @signal int counter rejections \u003e= 3 matched → will TERMINATE the story with bad_ending (gate @end leaf, not @next).",
+          "text": "[T29a → @end bad_ending] @signal int COUNTER REJECTIONS \u003e= 3 matched → will TERMINATE the story with bad_ending (gate @end leaf, not @next).",
           "type": "narrator"
         }
       ],

@@ -1,5 +1,9 @@
 # LS `@signal int` — 作者自定义的跨集持久整数变量
 
+> **历史设计记录，不是当前规范。** 当时采用的小写 `snake_case` 命名已被
+> Lunaverse Script contract v2 取代；当前规则只看仓库根目录 `LS-SPEC.md`、
+> `contract/contract.json` 和 `contract/episode.schema.json`。
+
 > 扩展 `@signal` 指令，新增 `int` kind，作为作者可自由声明、跨集持久的整数计数器。与 `@affection` 并列，但命名自由、不绑定角色。
 
 ---

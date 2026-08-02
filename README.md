@@ -31,6 +31,26 @@ lsc validate episode.ls.md
 
 See [LS-SPEC.md](LS-SPEC.md) for the complete specification.
 
+## Consumer contract
+
+`contract/contract.json` identifies the current LS/Episode JSON contract.
+`contract/episode.schema.json` and `contract/fixtures/` are the machine-readable
+artifacts consumed by IDE and Backend. Consumers pin an exact repository commit;
+language rules must be changed here first rather than patched downstream.
+
+Contract automation is preparation-only:
+
+```bash
+node scripts/contractctl.mjs rollout consumers prepare https://github.com/cdotlock/lunascripts/pull/<number>
+node scripts/contractctl.mjs rollout consumers sync https://github.com/cdotlock/lunascripts/pull/<number>
+node scripts/contractctl.mjs rollout status https://github.com/cdotlock/lunascripts/pull/<number> --json
+```
+
+The first command pins the exact candidate SHA in open Backend and IDE PRs. The
+second is valid only after that upstream PR is merged into `main` and repins the
+same consumer PRs to its reachable canonical merge SHA. Neither command can
+merge or release anything. See [the preparation runbook](docs/contract-consumer-preparation.md).
+
 ## Development
 
 ```bash

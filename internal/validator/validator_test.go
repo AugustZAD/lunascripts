@@ -110,6 +110,57 @@ func TestValidBraveOptionPass(t *testing.T) {
 	}
 }
 
+func TestCheckConditionScope(t *testing.T) {
+	tests := []struct {
+		name string
+		body []ast.Node
+		gate *ast.GateBlock
+	}{
+		{
+			name: "top-level body",
+			body: []ast.Node{&ast.IfNode{
+				Condition: &ast.CheckCondition{Result: "success"},
+				Then:      []ast.Node{&ast.NarratorNode{Text: "Invalid."}},
+			}},
+			gate: unconditionalGate("main:02"),
+		},
+		{
+			name: "safe option body",
+			body: []ast.Node{&ast.ChoiceNode{Options: []*ast.OptionNode{{
+				ID: "A", Mode: "safe", Text: "Wait",
+				Body: []ast.Node{&ast.IfNode{
+					Condition: &ast.CheckCondition{Result: "fail"},
+					Then:      []ast.Node{&ast.NarratorNode{Text: "Invalid."}},
+				}},
+			}}}},
+			gate: unconditionalGate("main:02"),
+		},
+		{
+			name: "gate route",
+			body: []ast.Node{&ast.NarratorNode{Text: "End."}},
+			gate: &ast.GateBlock{Routes: []*ast.GateRoute{
+				{Condition: &ast.CheckCondition{Result: "success"}, Leaf: &ast.NextLeaf{Target: "main:02"}},
+				{Leaf: &ast.EndLeaf{Type: ast.EndingComplete}},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := Validate(&ast.Episode{BranchKey: "main:01", Title: "T", Body: tt.body, Gate: tt.gate})
+			found := false
+			for _, err := range errs {
+				if err.Code == InvalidCondition && strings.Contains(err.Message, "only valid inside a brave option body") {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected scoped INVALID_CONDITION error, got %v", errs)
+			}
+		})
+	}
+}
+
 func TestDuplicateOptionID(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01", Title: "T",
@@ -780,13 +831,75 @@ func TestValidateSignalIntReservedNameIsItself(t *testing.T) {
 	}
 }
 
+func TestValidateAuthorSignalNamesUseScreamingSnakeCase(t *testing.T) {
+	valid := []ast.Node{
+		&ast.SignalNode{Kind: ast.SignalKindMark, Event: "FIRST_MEETING"},
+		&ast.SignalNode{Kind: ast.SignalKindInt, Name: "LOVE_POINTS", Op: ast.SignalOpAdd, Value: 1},
+	}
+	ep := &ast.Episode{
+		BranchKey: "main:01",
+		Title:     "t",
+		Body:      valid,
+		Gate:      unconditionalGate("main:02"),
+	}
+	for _, err := range Validate(ep) {
+		if err.Code == InvalidSignalName {
+			t.Fatalf("uppercase author signal unexpectedly rejected: %v", err)
+		}
+	}
+
+	invalid := []struct {
+		name string
+		kind string
+	}{
+		{name: "love_points", kind: ast.SignalKindInt},
+		{name: "Love_Points", kind: ast.SignalKindInt},
+		{name: "1_LOVE_POINTS", kind: ast.SignalKindInt},
+		{name: "LOVE-POINTS", kind: ast.SignalKindInt},
+		{name: "first_meeting", kind: ast.SignalKindMark},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.kind+"/"+tc.name, func(t *testing.T) {
+			node := &ast.SignalNode{Kind: tc.kind, Name: tc.name, Event: tc.name, Op: ast.SignalOpAdd, Value: 1}
+			ep := &ast.Episode{BranchKey: "main:01", Title: "t", Body: []ast.Node{node}, Gate: unconditionalGate("main:02")}
+			found := false
+			for _, err := range Validate(ep) {
+				if err.Code == InvalidSignalName {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s for %q", InvalidSignalName, tc.name)
+			}
+		})
+	}
+}
+
+func TestValidateSignalMarkReaderUsesScreamingSnakeCase(t *testing.T) {
+	ep := &ast.Episode{
+		BranchKey: "main:01",
+		Title:     "t",
+		Body: []ast.Node{&ast.IfNode{
+			Condition: &ast.FlagCondition{Name: "first_meeting"},
+			Then:      []ast.Node{&ast.NarratorNode{Text: "x"}},
+		}},
+		Gate: unconditionalGate("main:02"),
+	}
+	for _, err := range Validate(ep) {
+		if err.Code == InvalidSignalName {
+			return
+		}
+	}
+	t.Fatal("expected lowercase signal mark reader to be rejected")
+}
+
 func TestValidateSignalIntOK(t *testing.T) {
 	ep := &ast.Episode{
 		BranchKey: "main:01",
 		Title:     "t",
 		Body: []ast.Node{
-			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "rejections", Op: ast.SignalOpAssign, Value: 0},
-			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "rejections", Op: ast.SignalOpAdd, Value: 1},
+			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "REJECTIONS", Op: ast.SignalOpAssign, Value: 0},
+			&ast.SignalNode{Kind: ast.SignalKindInt, Name: "REJECTIONS", Op: ast.SignalOpAdd, Value: 1},
 		},
 		Gate: &ast.GateBlock{
 			Routes: []*ast.GateRoute{

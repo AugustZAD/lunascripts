@@ -1,24 +1,8 @@
-name: Deploy to Railway
+name: MANUAL ONLY — Deploy to Railway
 
-# Auto-deploys the ls FastAPI service to Railway whenever main is pushed
-# with changes that affect the runtime (Go source, Python wrapper, Docker,
-# runtime config). Docs-only commits skip the build.
-#
-# Manual trigger: GitHub Actions UI -> "Deploy to Railway" -> Run workflow.
-
+# This workflow is intentionally disconnected from contract preparation.
+# A human operator may run it from the Actions UI after completing their own review.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - 'api_server.py'
-      - 'requirements.txt'
-      - 'Dockerfile'
-      - 'railway.toml'
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/deploy-railway.yml'
   workflow_dispatch: {}
 
 concurrency:
@@ -26,34 +10,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: railway up
+  manual-release:
+    name: MANUAL ONLY — railway up
     runs-on: ubuntu-latest
+    environment: production
     env:
       RAILWAY_PROJECT_ID: 64a837fc-1712-492f-b571-e1fec8090cd7
       RAILWAY_ENVIRONMENT: production
       RAILWAY_SERVICE_ID: b33addae-782a-469a-929e-56c8fd09d70c
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Railway CLI
         run: |
           curl -fsSL https://railway.com/install.sh | bash
           echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
-        shell: bash
-
-      - name: Deploy
+      - name: Run the human-requested release
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
-          railway --version
-          railway link \
-            --project "$RAILWAY_PROJECT_ID" \
-            --environment "$RAILWAY_ENVIRONMENT" \
-            --service "$RAILWAY_SERVICE_ID"
-          railway up \
-            --project "$RAILWAY_PROJECT_ID" \
-            --environment "$RAILWAY_ENVIRONMENT" \
-            --service "$RAILWAY_SERVICE_ID" \
-            --ci
-        shell: bash
+          railway link --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --service "$RAILWAY_SERVICE_ID"
+          railway up --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --service "$RAILWAY_SERVICE_ID" --ci

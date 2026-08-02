@@ -38,8 +38,8 @@ feature_parade/
 make build
 
 # 单文件
-bin/lsc validate testdata/feature_parade/ep01.ls --assets testdata/feature_parade/mapping.json
-bin/lsc compile  testdata/feature_parade/ep01.ls --assets testdata/feature_parade/mapping.json -o /tmp/ep01.json
+bin/lsc validate testdata/feature_parade/ep01.ls.md --assets testdata/feature_parade/mapping.json
+bin/lsc compile  testdata/feature_parade/ep01.ls.md --assets testdata/feature_parade/mapping.json -o /tmp/ep01.json
 
 # 全部重生成 golden
 for f in ep01 ep02 bad01 cont01 stress; do
@@ -111,7 +111,7 @@ mapping.json 的 `base_url` 指向 OSS 根路径；minigame key 为下划线风�
 
 | 分支 | 条件类型 | 条件 | 预告对白 | 终态 |
 |---|---|---|---|---|
-| T29a | comparison（signal int） | `rejections >= 3` | `[T29a → @end bad_ending]` 计数器命中 → 直接 `@end bad_ending`（叶子） | `@end bad_ending` |
+| T29a | comparison（signal int） | `REJECTIONS >= 3` | `[T29a → @end bad_ending]` 计数器命中 → 直接 `@end bad_ending`（叶子） | `@end bad_ending` |
 | T29b | choice | `A.fail` | `[T29b → main/bad/001:01]` | [bad01.md](bad01.md) |
 | T29c | flag | `EP01_DEFLECTED` | `[T29c → main/bad/001:01]` | [bad01.md](bad01.md) |
 | T29d | comparison（affection） | `affection.easton < 0` | `[T29d → main/bad/001:01]` | [bad01.md](bad01.md) |
@@ -181,7 +181,7 @@ T29a 的叶子是 `@end bad_ending`（非 `@next`），其余分支是 `@next`�
 | T57 | 单消息 `@phone { ... }` 边界 | 最小非空 phone 块 |
 | T58 | 并发组边界：对话打断 + 重启 | `&` / 对话行 |
 | T58a | 单个 `@pause` | `@pause` |
-| T58b | `@signal int` — 3 种写法（=, +, -）+ comparison 读 | `@signal int stress_count = 0` / `+2` / `-1` + `@if (stress_count >= 2)` |
+| T58b | `@signal int` — 3 种写法（=, +, -）+ comparison 读 | `@signal int STRESS_COUNT = 0` / `+2` / `-1` + `@if (STRESS_COUNT >= 2)` |
 | T59 | 小游戏巡礼：**slot_machine / stardew_fishing / survive_30_seconds** | 3 个 leaf `@minigame` 连跑 |
 | T60 | stress gate 路由：纯 `@next main:02` 无条件叶子 | gate 内单条无条件 `@next` |
 

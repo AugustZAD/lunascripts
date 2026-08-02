@@ -1,0 +1,13 @@
+{
+  "ls_contract_version": "2.0.0",
+  "episode_id": "main:01",
+  "branch_key": "main",
+  "seq": 1,
+  "title": "Uppercase signal contract",
+  "steps": [
+    { "id": "0001_sig", "type": "signal", "kind": "mark", "event": "FIRST_MEETING" },
+    { "id": "0002_sig", "type": "signal", "kind": "int", "name": "LOVE_POINTS", "op": "+", "value": 1 }
+  ],
+  "gate": null,
+  "ending": { "type": "complete" }
+}
