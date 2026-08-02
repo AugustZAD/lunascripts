@@ -31,6 +31,9 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
 
     async refreshConsumerPins(record, canonicalSha) {
       if (github.getBranchSha(UPSTREAM_REPO, "main") !== canonicalSha) throw new Error("upstream canonical main does not match its merge result");
+      if (github.getTreeDigest(UPSTREAM_REPO, canonicalSha) !== record.upstream.treeDigest) {
+        throw new Error("canonical upstream tree does not match the approved tree digest");
+      }
       const baseDir = mkdtempSync(join(tmpdir(), "lunascripts-canonical-repin-"));
       try {
         const result = {};
@@ -60,7 +63,10 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
 
     async deployAndVerifyUpstream(revision) {
       const started = new Date(Date.now() - 5_000).toISOString();
-      github.dispatchWorkflow(UPSTREAM_REPO, "deploy-railway.yml", "main");
+      github.dispatchWorkflow(UPSTREAM_REPO, "deploy-railway.yml", "main", {
+        confirm: "DEPLOY_APPROVED_CONTRACT_ROLLOUT",
+        revision,
+      });
       const run = waitDispatched(github, UPSTREAM_REPO, "deploy-railway.yml", revision, started);
       const completed = github.watchWorkflowRun(UPSTREAM_REPO, run.databaseId);
       if (completed.conclusion !== "success") throw new Error(`Lunaverse Scripts deployment failed: ${completed.url}`);

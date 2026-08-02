@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { parseJsonOutput } from "./command.mjs";
 import { validateRolloutRecord } from "./core.mjs";
 
@@ -20,6 +22,9 @@ export function renderRolloutComment(record) {
     `State: **${value.state}**  `,
     `Contract: **${value.contractVersion} (${value.changeClass})**  `,
     `Backend audit: **${value.audit.status}** — ${value.audit.blockers} blocker(s), ${value.audit.repairRecommended} repair recommendation(s).`,
+    value.audit.remediation === "manual_review_only"
+      ? "Repair policy: **manual review only**; this rollout never modifies stored content."
+      : "Repair policy: audit pending; stored content remains read-only.",
     "",
     "This record is reconstructed and revalidated by `contractctl`; the comment itself is not an authorization token.",
     "",
@@ -74,6 +79,13 @@ export function createGitHubClient(runner) {
       return value.sha;
     },
 
+    getTreeDigest(repository, revision) {
+      const value = json(["api", `repos/${repository}/git/commits/${revision}`], "GitHub commit");
+      const treeSha = value.tree?.sha;
+      if (!/^[0-9a-f]{40}$/.test(treeSha ?? "")) throw new Error(`${repository}:${revision} did not resolve an exact Git tree`);
+      return `sha256:${createHash("sha256").update(treeSha).digest("hex")}`;
+    },
+
     getPullRequest(repository, number) {
       const pr = json([
         "pr",
@@ -82,12 +94,13 @@ export function createGitHubClient(runner) {
         "--repo",
         repository,
         "--json",
-        "number,url,state,headRefName,baseRefName,headRefOid,mergeCommit,mergeable,statusCheckRollup",
+        "number,url,state,isDraft,headRefName,baseRefName,headRefOid,mergeCommit,mergeable,statusCheckRollup",
       ], "GitHub pull request");
       return {
         number: pr.number,
         url: pr.url,
         state: pr.state,
+        isDraft: pr.isDraft === true,
         headBranch: pr.headRefName ?? null,
         baseBranch: pr.baseRefName ?? null,
         headSha: pr.headRefOid,
@@ -121,6 +134,16 @@ export function createGitHubClient(runner) {
       runner.capture("gh", ["pr", "edit", String(number), "--repo", repository, "--title", title, "--body", body]);
       const after = client.getPullRequest(repository, number);
       if (after.headSha !== expectedHeadSha) throw new Error("PR head changed while its description was updated");
+      return after;
+    },
+
+    markPullRequestReady(repository, number, expectedHeadSha) {
+      const before = client.getPullRequest(repository, number);
+      if (before.headSha !== expectedHeadSha) throw new Error(`draft PR head ${before.headSha} does not match expected ${expectedHeadSha}`);
+      if (!before.isDraft) return before;
+      runner.run("gh", ["pr", "ready", String(number), "--repo", repository]);
+      const after = client.getPullRequest(repository, number);
+      if (after.headSha !== expectedHeadSha || after.isDraft) throw new Error("pull request ready transition could not be verified");
       return after;
     },
 

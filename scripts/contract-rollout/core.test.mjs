@@ -35,7 +35,26 @@ function record(overrides = {}) {
       pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15",
       headSha: SHA_A,
     },
-    audit: { status: "passed", blockers: 0, repairRecommended: 34 },
+    audit: {
+      status: "passed",
+      blockers: 0,
+      repairRecommended: 34,
+      remediation: "manual_review_only",
+      reportDigest: `sha256:${"2".repeat(64)}`,
+      provenance: {
+        upstreamHeadSha: SHA_A,
+        backendHeadSha: SHA_A,
+        ideHeadSha: SHA_A,
+        contractVersion: "2.0.0",
+        source: {
+          kind: "bootstrap",
+          repository: "cdotlock/lunaverse-backend",
+          revision: SHA_A,
+          executable: "scripts/lunascripts-contract-audit.ts",
+          sourceReportSha256: `sha256:${"3".repeat(64)}`,
+        },
+      },
+    },
     ...overrides,
   };
 }
@@ -77,9 +96,17 @@ test("approval digest is stable across key order but changes with material heads
     schemaVersion: first.schemaVersion,
   };
   assert.equal(approvalDigest(first), approvalDigest(reordered));
+  const changedAudit = {
+    ...first.audit,
+    provenance: {
+      ...first.audit.provenance,
+      backendHeadSha: SHA_B,
+      source: { ...first.audit.provenance.source, revision: SHA_B },
+    },
+  };
   assert.notEqual(
     approvalDigest(first),
-    approvalDigest({ ...first, backend: { ...first.backend, headSha: SHA_B } }),
+    approvalDigest({ ...first, backend: { ...first.backend, headSha: SHA_B }, audit: changedAudit }),
   );
 });
 
@@ -91,6 +118,10 @@ test("validates durable rollout records", () => {
     /40-character/,
   );
   assert.throws(() => validateRolloutRecord({ ...record(), state: "surprise" }), /state/);
+  assert.throws(
+    () => validateRolloutRecord({ ...record(), audit: { status: "passed", blockers: 0, repairRecommended: 0 } }),
+    /bound provenance/,
+  );
 });
 
 test("allows only explicit state transitions", () => {

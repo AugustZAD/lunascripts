@@ -20,3 +20,12 @@ test("active-target failure restores and verifies the captured deployment", () =
   assert.match(workflow, /ROLLBACK_VERIFIED=1/);
   assert.match(workflow, /lunascripts-deployment-result\.json/);
 });
+
+test("merging main cannot auto-deploy and controller dispatch binds an approved revision", () => {
+  assert.doesNotMatch(workflow, /\n\s+push:/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /DEPLOY_APPROVED_CONTRACT_ROLLOUT/);
+  assert.match(workflow, /inputs\.revision/);
+  assert.match(workflow, /merge-base --is-ancestor/);
+  assert.doesNotMatch(workflow, /test '\$\{\{ inputs\.confirm \}\}'/);
+});

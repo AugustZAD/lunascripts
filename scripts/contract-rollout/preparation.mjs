@@ -43,8 +43,63 @@ export function rolloutBranch(version, upstreamSha) {
 }
 
 function treeDigest(runner, cwd, sha) {
-  const listing = runner.capture("git", ["ls-tree", "-r", "--full-tree", sha], { cwd });
-  return `sha256:${createHash("sha256").update(listing).digest("hex")}`;
+  const treeSha = runner.capture("git", ["rev-parse", `${sha}^{tree}`], { cwd });
+  if (!SHA_RE.test(treeSha)) throw new Error("upstream candidate did not resolve an exact Git tree");
+  return `sha256:${createHash("sha256").update(treeSha).digest("hex")}`;
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  }
+  return value;
+}
+
+function payloadDigest(value) {
+  return `sha256:${createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex")}`;
+}
+
+function validateAuditSource(source, record) {
+  if (!source || typeof source !== "object") throw new Error("audit provenance source is required");
+  if (source.repository !== record.backend.repository) throw new Error("audit producer repository does not match Backend");
+  if (source.revision !== record.backend.headSha) throw new Error("audit producer revision does not match backendHeadSha");
+  if (!/^sha256:[0-9a-f]{64}$/.test(source.sourceReportSha256 ?? "")) {
+    throw new Error("audit sourceReportSha256 is invalid");
+  }
+  if (source.kind === "bootstrap") {
+    if (source.executable !== "scripts/lunascripts-contract-audit.ts") {
+      throw new Error("bootstrap audit executable is not authoritative");
+    }
+    return;
+  }
+  if (source.kind === "github-actions") {
+    if (source.workflow !== "lunascripts-contract-audit.yml" || !Number.isInteger(source.runId) || source.runId <= 0) {
+      throw new Error("audit workflow provenance is invalid");
+    }
+    return;
+  }
+  throw new Error("audit provenance kind is invalid");
+}
+
+export function bindAuditReport(record, report, source) {
+  validateAuditSource(source, record);
+  if (report?.readOnly !== true) throw new Error("audit report does not prove read-only execution");
+  for (const key of ["blockers", "repairRecommended"]) {
+    if (!Number.isInteger(report[key]) || report[key] < 0) throw new Error(`audit report ${key} is invalid`);
+  }
+  return {
+    schemaVersion: 1,
+    provenance: {
+      upstreamHeadSha: record.upstream.headSha,
+      backendHeadSha: record.backend.headSha,
+      ideHeadSha: record.ide.headSha,
+      contractVersion: record.contractVersion,
+      source: structuredClone(source),
+    },
+    payloadDigest: payloadDigest(report),
+    report: structuredClone(report),
+  };
 }
 
 function prBody({ contractVersion, upstreamSha, upstreamUrl, key, files, evidence }) {
@@ -123,6 +178,7 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, ups
   const pr = existing
     ? github.updatePullRequest(consumer.repository, existing.number, { title: `chore(ls): consume contract ${contractVersion}`, body, expectedHeadSha: headSha })
     : github.createPullRequest(consumer.repository, { branch, base: "main", title: `chore(ls): consume contract ${contractVersion}`, body, expectedHeadSha: headSha });
+  if (existing?.isDraft) github.markPullRequestReady(consumer.repository, existing.number, headSha);
   return { repository: consumer.repository, pullRequest: pr.url, headSha: pr.headSha };
 }
 
@@ -177,9 +233,25 @@ export function prepareRollout({ upstreamUrl, root, runner, github, consumers = 
   }
 }
 
-export function applyAuditReport(record, report) {
-  if (report?.readOnly !== true) throw new Error("audit report does not prove read-only execution");
-  if (!Number.isInteger(report.blockers) || !Number.isInteger(report.repairRecommended)) throw new Error("audit report counts are invalid");
+export function applyAuditReport(record, envelope) {
+  if (envelope?.schemaVersion !== 1 || !envelope.provenance || !envelope.report) {
+    throw new Error("audit import requires a bound audit envelope");
+  }
+  for (const [key, expected] of [
+    ["upstreamHeadSha", record.upstream.headSha],
+    ["backendHeadSha", record.backend.headSha],
+    ["ideHeadSha", record.ide.headSha],
+    ["contractVersion", record.contractVersion],
+  ]) {
+    if (envelope.provenance[key] !== expected) throw new Error(`audit provenance ${key} does not match rollout`);
+  }
+  validateAuditSource(envelope.provenance.source, record);
+  if (envelope.payloadDigest !== payloadDigest(envelope.report)) throw new Error("audit payload digest does not match report");
+  const report = envelope.report;
+  if (report.readOnly !== true) throw new Error("audit report does not prove read-only execution");
+  if (!Number.isInteger(report.blockers) || report.blockers < 0 || !Number.isInteger(report.repairRecommended) || report.repairRecommended < 0) {
+    throw new Error("audit report counts are invalid");
+  }
   const passed = report.blockers === 0;
   return {
     ...record,
@@ -188,6 +260,9 @@ export function applyAuditReport(record, report) {
       status: passed ? "passed" : "blocked",
       blockers: report.blockers,
       repairRecommended: report.repairRecommended,
+      remediation: "manual_review_only",
+      reportDigest: envelope.payloadDigest,
+      provenance: structuredClone(envelope.provenance),
     },
   };
 }

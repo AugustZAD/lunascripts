@@ -38,18 +38,21 @@ Lunaverse Scripts owns a small, idempotent orchestration CLI:
 
 ```text
 contractctl rollout prepare <upstream-pr-url>
+contractctl rollout bind-audit <upstream-pr-url> --backend-pr <url> --ide-pr <url> --upstream-head <sha> --backend-head <sha> --ide-head <sha> --audit-report <raw.json> --report-sha256 <sha256> --output <bound.json>
 contractctl rollout status <upstream-pr-url>
 contractctl rollout continue <upstream-pr-url> --confirm APPROVE_CONTRACT_ROLLOUT
-contractctl rollout resume <upstream-pr-url>
+contractctl rollout resume <upstream-pr-url> [--confirm APPROVE_CONTRACT_ROLLOUT_RESUME]
 ```
 
 `prepare` is read-only toward production. It may create or update branches, PRs, checks, and the rollout record.
+
+`bind-audit` is the bootstrap conversion path for a raw report whose checksum was recorded independently. It verifies that all three live PR heads match the operator-supplied exact SHAs, verifies the raw bytes, and emits a new non-overwriting envelope bound to those heads, the contract version, the authoritative Backend executable/revision, and the source-report checksum. `prepare --audit-report` accepts only this envelope, never an unbound raw report.
 
 `continue` performs privileged GitHub and deployment actions only after the Agent has received explicit approval from its current operator. The confirmation phrase is an Agent safety interlock, not a replacement for GitHub authentication: every action still runs as the currently authenticated GitHub actor and through existing protected deployment workflows.
 
 `status` reconstructs the rollout from GitHub on every call. It must not depend on a local cache or chat history.
 
-`resume` is an alias for `status` followed by the next safe, non-production preparation step. It never crosses the approval boundary by itself.
+`resume` revalidates a `rollout_blocked` durable checkpoint. Without a confirmation it is strictly read-only and prints the recovery command. After diagnosis, `--confirm APPROVE_CONTRACT_ROLLOUT_RESUME` explicitly authorizes continuation from the saved checkpoint; heads, green checks, audit provenance, and the original approval digest are revalidated before the first recovery write.
 
 ### 3.2 Durable rollout record
 
@@ -61,12 +64,12 @@ The upstream PR contains one bot-managed comment identified by a stable hidden m
 - upstream, Backend, and IDE PR URLs and exact head SHAs;
 - consumer contract pins;
 - CI conclusions and check URLs;
-- read-only stored-content audit summary and artifact URL;
+- read-only stored-content audit summary, immutable payload/source digests, exact three-head and contract-version provenance, and artifact/workflow provenance;
 - approval digest and authenticated GitHub actor, once execution begins;
 - merge SHAs, deployment ID, pre-rollout deployment ID, smoke result, and rollback result;
 - blocking reason and the exact safe resume/handoff command.
 
-The comment is a projection, not trusted input. `contractctl` re-queries GitHub checks, refs, merge state, and deployment health before every transition. A forged or stale comment cannot authorize a merge or deployment.
+The comment is a projection, not trusted input. `contractctl` re-queries GitHub checks, refs, draft/mergeable state, merge state, and deployment health before every transition. Stored approval digests must equal a fresh digest over all three heads and the bound audit. A forged or stale comment cannot authorize a merge or deployment.
 
 ### 3.3 Repository responsibilities
 
@@ -134,6 +137,8 @@ The stored-content report lists affected novels/episodes, exact JSON paths, seve
 
 Affected legacy content is not automatically a blocker when the prepared Backend proves dual-read compatibility. It is a blocker when the proposed Backend would make currently readable production content unreadable or would change its meaning.
 
+`repairRecommended` is evidence for manual remediation only. A non-zero recommendation count is included in the rollout comment and immutable approval digest but does not block when `blockers` is zero, and no rollout command executes the recommendation.
+
 ## 6. Approval contract
 
 The Agent asks its current operator only when all preparation checks are green. The prompt must include:
@@ -157,7 +162,7 @@ After approval, `continue` performs these transitions serially under a global si
 1. Revalidate approval digest, check conclusions, branch heads, mergeability, credentials, and rollback readiness.
 2. Merge the upstream PR.
 3. Resolve the canonical upstream `main` commit. Update Backend and IDE pins from the temporary PR head to that canonical commit, verify identical Git tree content, and rerun authority/consumer checks.
-4. Wait for the existing Lunaverse Scripts Railway deployment and its health check. Stop before consumer merges if it fails.
+4. Dispatch the Lunaverse Scripts Railway workflow with the exact approved canonical revision and controller interlock, then wait for its health check. A push or merge to `main` never triggers this production deployment on its own. Stop before consumer merges if it fails.
 5. Merge the Backend PR and resolve the exact Backend `main` commit.
 6. Dispatch the protected Backend contract rollout deployment for that exact commit. Contract rollout refuses Backend PRs that also contain database migrations or unrelated infrastructure changes; those require the normal reviewed production path.
 7. Capture the prior production deployment ID, wait for the new revision-bound deployment, and run public and direct-origin smoke checks covering health, an old unversioned episode, and a v2 contract episode.
@@ -186,7 +191,7 @@ No automatic Git revert is created. Source correction remains a reviewed follow-
 
 ### 8.3 Resume and handoff
 
-All transitions are idempotent. A new Agent runs `contractctl rollout status <PR>` and receives the next allowed command. If its GitHub identity lacks an action, the status names the missing permission and produces a handoff command containing only PR identifiers and immutable SHAs, never credentials.
+All transitions are idempotent. A new Agent runs `contractctl rollout status <PR>` and receives the next allowed command. `rollout resume <PR>` performs a read-only blocked-checkpoint audit; only the separate recovery confirmation may continue it. If its GitHub identity lacks an action, the status names the missing permission and produces a handoff command containing only PR identifiers and immutable SHAs, never credentials.
 
 ## 9. Concurrency and integrity
 

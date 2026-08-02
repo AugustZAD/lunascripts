@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -8,6 +9,7 @@ import {
   parseRolloutComment,
   renderRolloutComment,
 } from "./github.mjs";
+import { applyAuditReport, bindAuditReport } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
 
@@ -69,6 +71,20 @@ test("round-trips one marked rollout comment", () => {
   assert.equal(parseRolloutComment("ordinary review"), null);
 });
 
+test("rollout comment makes repair recommendations explicitly manual", () => {
+  const envelope = bindAuditReport(record, { readOnly: true, blockers: 0, repairRecommended: 150 }, {
+    kind: "bootstrap",
+    repository: record.backend.repository,
+    revision: record.backend.headSha,
+    executable: "scripts/lunascripts-contract-audit.ts",
+    sourceReportSha256: `sha256:${"2".repeat(64)}`,
+  });
+  const body = renderRolloutComment(applyAuditReport(record, envelope));
+  assert.match(body, /150 repair recommendation\(s\)/);
+  assert.match(body, /manual review only/i);
+  assert.match(body, /never modifies stored content/i);
+});
+
 test("updates the existing marked comment instead of creating a duplicate", () => {
   const runner = fakeRunner([
     [
@@ -94,6 +110,7 @@ test("reads exact PR heads and normalizes checks", () => {
     number: 128,
     url: "https://github.com/cdotlock/lunaverse-backend/pull/128",
     state: "OPEN",
+    isDraft: false,
     headBranch: null,
     baseBranch: null,
     headRefOid: SHA,
@@ -109,6 +126,7 @@ test("reads exact PR heads and normalizes checks", () => {
     number: 128,
     url: "https://github.com/cdotlock/lunaverse-backend/pull/128",
     state: "OPEN",
+    isDraft: false,
     headBranch: null,
     baseBranch: null,
     headSha: SHA,
@@ -137,4 +155,31 @@ test("merge uses expected-head protection and verifies the merged result", () =>
   assert.equal(runner.calls[0].args.includes("--match-head-commit"), true);
   assert.equal(runner.calls[0].args.includes(SHA), true);
   assert.equal(result.mergeSha, mergeSha);
+});
+
+test("resolves the canonical tree digest from an exact commit", () => {
+  const treeSha = "d".repeat(40);
+  const runner = fakeRunner([{ tree: { sha: treeSha } }]);
+  const github = createGitHubClient(runner);
+  assert.equal(
+    github.getTreeDigest("cdotlock/lunascripts", SHA),
+    `sha256:${createHash("sha256").update(treeSha).digest("hex")}`,
+  );
+  assert.deepEqual(runner.calls[0].args, ["api", `repos/cdotlock/lunascripts/git/commits/${SHA}`]);
+});
+
+test("marks an adopted draft ready without changing its expected head", () => {
+  const draft = {
+    number: 128,
+    url: "https://github.com/cdotlock/lunaverse-backend/pull/128",
+    state: "OPEN",
+    isDraft: true,
+    headRefOid: SHA,
+    mergeable: "MERGEABLE",
+    statusCheckRollup: [],
+  };
+  const runner = fakeRunner([draft, undefined, { ...draft, isDraft: false }]);
+  const github = createGitHubClient(runner);
+  github.markPullRequestReady("cdotlock/lunaverse-backend", 128, SHA);
+  assert.deepEqual(runner.calls[1].args, ["pr", "ready", "128", "--repo", "cdotlock/lunaverse-backend"]);
 });

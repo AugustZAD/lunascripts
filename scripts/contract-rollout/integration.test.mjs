@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { main } from "../contractctl.mjs";
-import { applyAuditReport, prepareRollout } from "./preparation.mjs";
+import { applyAuditReport, bindAuditReport, prepareRollout } from "./preparation.mjs";
 
 function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -58,9 +58,9 @@ test("offline three-repository prepare and approval dry-run never mutate product
   let preparedRecord;
   const github = {
     getPullRequest(repo, number) {
-      if (repo === "cdotlock/lunascripts") return { headSha: upstream.sha, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] };
+      if (repo === "cdotlock/lunascripts") return { headSha: upstream.sha, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", checks: [{ status: "completed", conclusion: "success" }] };
       const pr = pulls.get(`${repo}/${number}`);
-      return { ...pr, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] };
+      return { ...pr, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", checks: [{ status: "completed", conclusion: "success" }] };
     },
     findPullRequestByHead: () => null,
     createPullRequest(repo, value) {
@@ -86,7 +86,14 @@ test("offline three-repository prepare and approval dry-run never mutate product
       noopConsumer("ide", "cdotlock/lunaverse-ide"),
     ],
   });
-  preparedRecord = applyAuditReport(preparedRecord, { readOnly: true, blockers: 0, repairRecommended: 2 });
+  const envelope = bindAuditReport(preparedRecord, { readOnly: true, blockers: 0, repairRecommended: 2 }, {
+    kind: "bootstrap",
+    repository: preparedRecord.backend.repository,
+    revision: preparedRecord.backend.headSha,
+    executable: "scripts/lunascripts-contract-audit.ts",
+    sourceReportSha256: `sha256:${"2".repeat(64)}`,
+  });
+  preparedRecord = applyAuditReport(preparedRecord, envelope);
   github.readRolloutRecord = () => preparedRecord;
   const lines = [];
   const code = await main(

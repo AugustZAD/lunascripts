@@ -1,20 +1,16 @@
 name: Deploy to Railway
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - 'api_server.py'
-      - 'revision.txt'
-      - 'requirements.txt'
-      - 'Dockerfile'
-      - 'railway.toml'
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/deploy-railway.yml'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Controller interlock for an approved contract rollout.
+        required: true
+        type: string
+      revision:
+        description: Exact protected-main commit approved by the rollout controller.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -33,16 +29,25 @@ jobs:
       RAILWAY_ENVIRONMENT: production
       RAILWAY_SERVICE_ID: b33addae-782a-469a-929e-56c8fd09d70c
       HEALTH_URL: https://moonshort-script-production.up.railway.app/health
-      TARGET_REVISION: ${{ github.sha }}
+      DEPLOY_CONFIRM: ${{ inputs.confirm }}
+      TARGET_REVISION: ${{ inputs.revision }}
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 0
 
-      - name: Verify immutable main revision
+      - name: Verify approved immutable main revision
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF_NAME" = main
+          test "$DEPLOY_CONFIRM" = DEPLOY_APPROVED_CONTRACT_ROLLOUT
+          printf '%s' "$TARGET_REVISION" | grep -Eq '^[0-9a-f]{40}$'
           test "$(git rev-parse HEAD)" = "$TARGET_REVISION"
+          git fetch origin main
+          git merge-base --is-ancestor "$TARGET_REVISION" origin/main
           printf '%s\n' "$TARGET_REVISION" > revision.txt
 
       - name: Install Railway CLI

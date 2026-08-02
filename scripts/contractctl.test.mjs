@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { main } from "./contractctl.mjs";
+import { approvalDigest } from "./contract-rollout/core.mjs";
+import { bindAuditReport } from "./contract-rollout/preparation.mjs";
 
 const SHA = "a".repeat(40);
 
@@ -19,6 +22,29 @@ function io() {
   };
 }
 
+function boundAudit({ upstreamSha = SHA, backendSha = SHA, ideSha = SHA, repairRecommended = 0 } = {}) {
+  return {
+    status: "passed",
+    blockers: 0,
+    repairRecommended,
+    remediation: "manual_review_only",
+    reportDigest: `sha256:${"2".repeat(64)}`,
+    provenance: {
+      upstreamHeadSha: upstreamSha,
+      backendHeadSha: backendSha,
+      ideHeadSha: ideSha,
+      contractVersion: "2.0.0",
+      source: {
+        kind: "bootstrap",
+        repository: "cdotlock/lunaverse-backend",
+        revision: backendSha,
+        executable: "scripts/lunascripts-contract-audit.ts",
+        sourceReportSha256: `sha256:${"3".repeat(64)}`,
+      },
+    },
+  };
+}
+
 test("continue dry-run is mutation-free and does not require approval", async () => {
   const output = io();
   const calls = [];
@@ -30,13 +56,13 @@ test("continue dry-run is mutation-free and does not require approval", async ()
     changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
     ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
-    audit: { status: "passed", blockers: 0, repairRecommended: 34 },
+    audit: boundAudit({ repairRecommended: 34 }),
   };
   const github = {
     readRolloutRecord: () => record,
     getPullRequest: (repo) => {
       calls.push(["read", repo]);
-      return { headSha: SHA, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] };
+      return { headSha: SHA, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", checks: [{ status: "completed", conclusion: "success" }] };
     },
     mergePullRequest: () => calls.push(["mutate"]),
   };
@@ -59,7 +85,7 @@ test("continue refuses real execution without exact confirmation", async () => {
     changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
     ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
-    audit: { status: "passed", blockers: 0, repairRecommended: 0 },
+    audit: boundAudit(),
   };
   const code = await main(
     ["rollout", "continue", "https://github.com/cdotlock/lunascripts/pull/2"],
@@ -73,6 +99,157 @@ test("continue refuses real execution without exact confirmation", async () => {
   );
   assert.equal(code, 2);
   assert.match(output.stderr.join("\n"), /APPROVE_CONTRACT_ROLLOUT/);
+});
+
+test("continue blocks draft consumer PRs before the first production-changing action", async () => {
+  const output = io();
+  const calls = [];
+  const record = {
+    schemaVersion: 1,
+    state: "awaiting_approval",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    audit: boundAudit(),
+  };
+  const code = await main(
+    ["rollout", "continue", record.upstream.pullRequest, "--confirm", "APPROVE_CONTRACT_ROLLOUT"],
+    {
+      github: {
+        readRolloutRecord: () => record,
+        getPullRequest: (repository) => ({
+          headSha: SHA,
+          state: "OPEN",
+          isDraft: repository === "cdotlock/lunaverse-backend",
+          mergeable: "MERGEABLE",
+          checks: [{ status: "completed", conclusion: "success" }],
+        }),
+        upsertRolloutComment: () => calls.push("comment"),
+      },
+      actions: { mergeUpstream: () => calls.push("merge") },
+      io: output,
+    },
+  );
+  assert.equal(code, 1);
+  assert.match(output.stderr.join("\n"), /draft/i);
+  assert.deepEqual(calls, []);
+});
+
+test("continue refuses a durable resume whose stored approval digest is stale", async () => {
+  const output = io();
+  const calls = [];
+  const record = {
+    schemaVersion: 1,
+    state: "executing",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    audit: boundAudit(),
+    approval: { digest: `sha256:${"9".repeat(64)}`, confirmedAt: new Date().toISOString() },
+    execution: { stage: "approved" },
+  };
+  assert.notEqual(record.approval.digest, approvalDigest(record));
+  const code = await main(
+    ["rollout", "continue", record.upstream.pullRequest],
+    {
+      github: {
+        readRolloutRecord: () => record,
+        getPullRequest: () => ({ headSha: SHA, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] }),
+        upsertRolloutComment: () => calls.push("comment"),
+      },
+      actions: { mergeUpstream: () => calls.push("merge") },
+      io: output,
+    },
+  );
+  assert.equal(code, 1);
+  assert.match(output.stderr.join("\n"), /approval digest.*does not match/i);
+  assert.deepEqual(calls, []);
+});
+
+test("resume revalidates a blocked rollout but is read-only without a recovery confirmation", async () => {
+  const output = io();
+  const calls = [];
+  const record = {
+    schemaVersion: 1,
+    state: "rollout_blocked",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    audit: boundAudit({ repairRecommended: 150 }),
+    execution: { stage: "consumer_checks_green", updatedAt: new Date().toISOString() },
+    failure: { stage: "consumer_checks_green", message: "temporary workflow outage" },
+  };
+  record.approval = { digest: approvalDigest(record), confirmedAt: new Date().toISOString() };
+  const code = await main(
+    ["rollout", "resume", record.upstream.pullRequest],
+    {
+      github: {
+        readRolloutRecord: () => record,
+        getPullRequest: (repository) => {
+          calls.push(["read", repository]);
+          return { headSha: SHA, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] };
+        },
+        upsertRolloutComment: () => calls.push(["write"]),
+      },
+      actions: { deployAndVerifyUpstream: () => calls.push(["deploy"]) },
+      io: output,
+    },
+  );
+  assert.equal(code, 0);
+  assert.match(output.stdout.join("\n"), /--confirm APPROVE_CONTRACT_ROLLOUT_RESUME/);
+  assert.equal(calls.filter(([kind]) => kind === "read").length, 3);
+  assert.equal(calls.some(([kind]) => kind === "write" || kind === "deploy"), false);
+});
+
+test("confirmed blocked recovery resumes only from its durable checkpoint", async () => {
+  const calls = [];
+  const backendMerge = "b".repeat(40);
+  const ideMerge = "c".repeat(40);
+  const record = {
+    schemaVersion: 1,
+    state: "rollout_blocked",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    audit: boundAudit({ repairRecommended: 150 }),
+    execution: { stage: "consumer_checks_green", upstreamMergeSha: SHA, updatedAt: new Date().toISOString() },
+    failure: { stage: "consumer_checks_green", message: "temporary workflow outage" },
+  };
+  record.approval = { digest: approvalDigest(record), confirmedAt: new Date().toISOString() };
+  const actions = {
+    mergeUpstream: async () => { calls.push("merge upstream"); return { mergeSha: SHA }; },
+    refreshConsumerPins: async () => { calls.push("repin"); return { backend: record.backend, ide: record.ide }; },
+    waitConsumerChecks: async () => calls.push("checks"),
+    deployAndVerifyUpstream: async () => { calls.push("deploy upstream"); return { runId: 7 }; },
+    mergeBackend: async () => { calls.push("merge backend"); return { mergeSha: backendMerge }; },
+    resolveStableRing: async () => { calls.push("ring"); return { environment: "app072401", revision: SHA }; },
+    deployBackend: async () => { calls.push("deploy backend"); return { ok: true, targetBecameActive: true }; },
+    verifyProduction: async () => calls.push("smoke"),
+    mergeIde: async () => { calls.push("merge ide"); return { mergeSha: ideMerge }; },
+  };
+  const github = {
+    readRolloutRecord: () => record,
+    getPullRequest: () => ({ headSha: SHA, state: "OPEN", checks: [{ status: "completed", conclusion: "success" }] }),
+    upsertRolloutComment: (_repo, _number, saved) => calls.push(`comment:${saved.state}:${saved.execution.stage}`),
+  };
+  const code = await main(
+    ["rollout", "resume", record.upstream.pullRequest, "--confirm", "APPROVE_CONTRACT_ROLLOUT_RESUME"],
+    { github, actions, io: io() },
+  );
+  assert.equal(code, 0);
+  assert.equal(calls.includes("merge upstream"), false);
+  assert.equal(calls.includes("repin"), false);
+  assert.equal(calls.includes("checks"), false);
+  assert.ok(calls.indexOf("comment:executing:consumer_checks_green") < calls.indexOf("deploy upstream"));
+  assert.equal(calls.at(-1), "comment:complete:ide_merged");
 });
 
 test("validate detects contract paths and reads the manifest", async () => {
@@ -108,7 +285,6 @@ test("validate detects contract paths and reads the manifest", async () => {
 test("prepare can import a verified read-only bootstrap audit without dispatching a workflow", async () => {
   const root = mkdtempSync(join(tmpdir(), "contractctl-audit-import-"));
   const report = join(root, "audit.json");
-  writeFileSync(report, JSON.stringify({ readOnly: true, blockers: 0, repairRecommended: 7 }));
   const output = io();
   const record = {
     schemaVersion: 1, state: "preparing",
@@ -118,6 +294,14 @@ test("prepare can import a verified read-only bootstrap audit without dispatchin
     ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
     audit: { status: "pending", blockers: 0, repairRecommended: 0 },
   };
+  const envelope = bindAuditReport(record, { readOnly: true, blockers: 0, repairRecommended: 7 }, {
+    kind: "bootstrap",
+    repository: record.backend.repository,
+    revision: record.backend.headSha,
+    executable: "scripts/lunascripts-contract-audit.ts",
+    sourceReportSha256: `sha256:${"2".repeat(64)}`,
+  });
+  writeFileSync(report, JSON.stringify(envelope));
   let saved;
   const code = await main(
     ["rollout", "prepare", record.upstream.pullRequest, "--audit-report", report],
@@ -131,5 +315,80 @@ test("prepare can import a verified read-only bootstrap audit without dispatchin
   );
   assert.equal(code, 0);
   assert.equal(saved.state, "awaiting_approval");
-  assert.deepEqual(saved.audit, { status: "passed", blockers: 0, repairRecommended: 7 });
+  assert.equal(saved.audit.status, "passed");
+  assert.equal(saved.audit.blockers, 0);
+  assert.equal(saved.audit.repairRecommended, 7);
+  assert.equal(saved.audit.remediation, "manual_review_only");
+});
+
+test("bind-audit creates a head-bound bootstrap envelope after verifying the raw report checksum", async () => {
+  const root = mkdtempSync(join(tmpdir(), "contractctl-audit-bind-"));
+  mkdirSync(join(root, "contract"));
+  writeFileSync(join(root, "contract/contract.json"), JSON.stringify({ contract_version: "2.0.0", change_class: "major" }));
+  const report = join(root, "audit.json");
+  const output = join(root, "audit.bound.json");
+  const raw = `${JSON.stringify({ readOnly: true, blockers: 0, repairRecommended: 150 })}\n`;
+  writeFileSync(report, raw);
+  const checksum = createHash("sha256").update(raw).digest("hex");
+  const heads = {
+    "cdotlock/lunascripts": SHA,
+    "cdotlock/lunaverse-backend": "b".repeat(40),
+    "cdotlock/lunaverse-ide": "c".repeat(40),
+  };
+  const github = {
+    getPullRequest: (repository) => ({ state: "OPEN", headSha: heads[repository] }),
+  };
+  const runner = { capture: () => SHA };
+  const args = [
+    "rollout", "bind-audit", "https://github.com/cdotlock/lunascripts/pull/2",
+    "--backend-pr", "https://github.com/cdotlock/lunaverse-backend/pull/128",
+    "--ide-pr", "https://github.com/cdotlock/lunaverse-ide/pull/15",
+    "--upstream-head", heads["cdotlock/lunascripts"],
+    "--backend-head", heads["cdotlock/lunaverse-backend"],
+    "--ide-head", heads["cdotlock/lunaverse-ide"],
+    "--audit-report", report,
+    "--report-sha256", checksum,
+    "--output", output,
+  ];
+  const code = await main(args, { root, github, runner, io: io() });
+  assert.equal(code, 0);
+  const envelope = JSON.parse(readFileSync(output, "utf8"));
+  assert.equal(envelope.provenance.upstreamHeadSha, SHA);
+  assert.equal(envelope.provenance.backendHeadSha, heads["cdotlock/lunaverse-backend"]);
+  assert.equal(envelope.provenance.ideHeadSha, heads["cdotlock/lunaverse-ide"]);
+  assert.equal(envelope.provenance.contractVersion, "2.0.0");
+  assert.equal(envelope.provenance.source.sourceReportSha256, `sha256:${checksum}`);
+
+  const rejected = join(root, "rejected.bound.json");
+  const bad = await main([...args.slice(0, -1), rejected].map((value) => value === checksum ? "0".repeat(64) : value), { root, github, runner, io: io() });
+  assert.equal(bad, 1);
+  assert.equal(existsSync(rejected), false);
+
+  const stale = join(root, "stale.bound.json");
+  const staleArgs = [...args];
+  staleArgs[staleArgs.indexOf("--backend-head") + 1] = "d".repeat(40);
+  staleArgs[staleArgs.indexOf("--output") + 1] = stale;
+  const staleCode = await main(staleArgs, { root, github, runner, io: io() });
+  assert.equal(staleCode, 1);
+  assert.equal(existsSync(stale), false);
+});
+
+test("--help documents audit binding, approval, and blocked recovery with success status", async () => {
+  const output = io();
+  const code = await main(["--help"], { io: output });
+  assert.equal(code, 0);
+  const help = output.stdout.join("\n");
+  for (const value of [
+    "bind-audit",
+    "--audit-report",
+    "--report-sha256",
+    "--backend-pr",
+    "--ide-pr",
+    "--upstream-head",
+    "--backend-head",
+    "--ide-head",
+    "--confirm APPROVE_CONTRACT_ROLLOUT",
+    "--confirm APPROVE_CONTRACT_ROLLOUT_RESUME",
+    "repair recommendations",
+  ]) assert.match(help, new RegExp(value));
 });

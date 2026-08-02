@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { executeRollout, resolveStableRingFromHealth } from "./execution.mjs";
+import { applyAuditReport, bindAuditReport } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
 const MERGE = "b".repeat(40);
@@ -9,14 +10,19 @@ const BACKEND_MERGE = "c".repeat(40);
 const IDE_MERGE = "d".repeat(40);
 
 function record() {
-  return {
-    schemaVersion: 1, state: "awaiting_approval",
+  const pending = {
+    schemaVersion: 1, state: "preparing",
     upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
     contractVersion: "2.0.0", changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
     ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
-    audit: { status: "passed", blockers: 0, repairRecommended: 34 },
+    audit: { status: "pending", blockers: 0, repairRecommended: 0 },
   };
+  const envelope = bindAuditReport(pending, { readOnly: true, blockers: 0, repairRecommended: 34 }, {
+    kind: "bootstrap", repository: pending.backend.repository, revision: pending.backend.headSha,
+    executable: "scripts/lunascripts-contract-audit.ts", sourceReportSha256: `sha256:${"2".repeat(64)}`,
+  });
+  return applyAuditReport(pending, envelope);
 }
 
 function successfulActions(calls) {

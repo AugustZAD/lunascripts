@@ -131,6 +131,28 @@ export function validateRolloutRecord(record) {
       throw new Error(`audit.${key} must be a non-negative integer`);
     }
   }
+  if (record.audit.status === "passed" || record.audit.status === "blocked") {
+    const provenance = record.audit.provenance;
+    if (!provenance || record.audit.remediation !== "manual_review_only" || !/^sha256:[0-9a-f]{64}$/.test(record.audit.reportDigest ?? "")) {
+      throw new Error("completed audit must include bound provenance, report digest, and manual-only remediation");
+    }
+    for (const [key, expected] of [
+      ["upstreamHeadSha", record.upstream.headSha],
+      ["backendHeadSha", record.backend.headSha],
+      ["ideHeadSha", record.ide.headSha],
+      ["contractVersion", record.contractVersion],
+    ]) {
+      if (provenance[key] !== expected) throw new Error(`audit provenance ${key} does not match rollout`);
+    }
+    const source = provenance.source;
+    if (!source || source.repository !== record.backend.repository || source.revision !== record.backend.headSha ||
+        !/^sha256:[0-9a-f]{64}$/.test(source.sourceReportSha256 ?? "")) {
+      throw new Error("audit source provenance does not match Backend");
+    }
+    const bootstrap = source.kind === "bootstrap" && source.executable === "scripts/lunascripts-contract-audit.ts";
+    const workflow = source.kind === "github-actions" && source.workflow === "lunascripts-contract-audit.yml" && Number.isInteger(source.runId) && source.runId > 0;
+    if (!bootstrap && !workflow) throw new Error("audit source provenance is not authoritative");
+  }
   if (record.approval?.digest && !/^sha256:[0-9a-f]{64}$/.test(record.approval.digest)) {
     throw new Error("approval.digest must be a sha256 digest");
   }

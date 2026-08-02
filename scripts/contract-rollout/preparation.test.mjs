@@ -4,29 +4,82 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { applyAuditReport, prepareConsumerWorkspace, prepareRollout, rolloutBranch } from "./preparation.mjs";
+import { applyAuditReport, bindAuditReport, prepareConsumerWorkspace, prepareRollout, rolloutBranch } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
+const BACKEND_SHA = "b".repeat(40);
+const IDE_SHA = "c".repeat(40);
+
+function preparingRecord() {
+  return {
+    schemaVersion: 1,
+    state: "preparing",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: BACKEND_SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: IDE_SHA },
+    audit: { status: "pending", blockers: 0, repairRecommended: 0 },
+  };
+}
+
+function bootstrapEnvelope(record = preparingRecord(), report = { readOnly: true, blockers: 0, repairRecommended: 34 }) {
+  return bindAuditReport(record, report, {
+    kind: "bootstrap",
+    repository: record.backend.repository,
+    revision: record.backend.headSha,
+    executable: "scripts/lunascripts-contract-audit.ts",
+    sourceReportSha256: `sha256:${"2".repeat(64)}`,
+  });
+}
 
 test("uses a deterministic consumer branch", () => {
   assert.equal(rolloutBranch("2.0.0", SHA), "contract-rollout/v2.0.0-aaaaaaaa");
 });
 
 test("turns a read-only clean audit into one approval gate", () => {
-  const record = {
-    schemaVersion: 1,
-    state: "preparing",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
-    contractVersion: "2.0.0",
-    changeClass: "major",
-    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
-    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
-    audit: { status: "pending", blockers: 0, repairRecommended: 0 },
-  };
-  const updated = applyAuditReport(record, { readOnly: true, blockers: 0, repairRecommended: 34 });
+  const record = preparingRecord();
+  const updated = applyAuditReport(record, bootstrapEnvelope(record));
   assert.equal(updated.state, "awaiting_approval");
-  assert.deepEqual(updated.audit, { status: "passed", blockers: 0, repairRecommended: 34 });
-  assert.throws(() => applyAuditReport(record, { readOnly: false, blockers: 0, repairRecommended: 0 }), /read-only/);
+  assert.equal(updated.audit.status, "passed");
+  assert.equal(updated.audit.blockers, 0);
+  assert.equal(updated.audit.repairRecommended, 34);
+  assert.equal(updated.audit.remediation, "manual_review_only");
+  assert.equal(updated.audit.provenance.ideHeadSha, IDE_SHA);
+});
+
+test("rejects unbound, stale, or forged audit reports before approval", () => {
+  const record = preparingRecord();
+  assert.throws(
+    () => applyAuditReport(record, { readOnly: true, blockers: 0, repairRecommended: 0 }),
+    /bound audit envelope/,
+  );
+  for (const [field, value] of [
+    ["upstreamHeadSha", "d".repeat(40)],
+    ["backendHeadSha", "d".repeat(40)],
+    ["ideHeadSha", "d".repeat(40)],
+    ["contractVersion", "3.0.0"],
+  ]) {
+    const envelope = bootstrapEnvelope(record);
+    envelope.provenance[field] = value;
+    assert.throws(() => applyAuditReport(record, envelope), new RegExp(field));
+  }
+  const forged = bootstrapEnvelope(record);
+  forged.report.blockers = 1;
+  assert.throws(() => applyAuditReport(record, forged), /payload digest/);
+});
+
+test("repair recommendations remain review-only and do not block a compatible rollout", () => {
+  const record = preparingRecord();
+  const updated = applyAuditReport(record, bootstrapEnvelope(record, {
+    readOnly: true,
+    blockers: 0,
+    repairRecommended: 150,
+    findings: [{ status: "legacy_repair_recommended" }],
+  }));
+  assert.equal(updated.state, "awaiting_approval");
+  assert.equal(updated.audit.repairRecommended, 150);
+  assert.equal(updated.audit.remediation, "manual_review_only");
 });
 
 test("updates a deterministic existing consumer PR through its exact-ref adapter", () => {
@@ -106,13 +159,15 @@ test("adopts explicit pre-controller consumer PRs instead of creating duplicates
     },
   };
   let creates = 0;
+  let markedReady = 0;
   const github = {
     getPullRequest(repo, number) {
       if (repo === "cdotlock/lunascripts") return { headSha: SHA };
-      return { number, state: "OPEN", headBranch: "codex/legacy-authority", headSha: SHA };
+      return { number, state: "OPEN", isDraft: true, headBranch: "codex/legacy-authority", headSha: SHA };
     },
     findPullRequestByHead: () => { throw new Error("adopted PR must not be rediscovered by deterministic branch"); },
     updatePullRequest(repo, number, value) { return { number, url: `https://github.com/${repo}/pull/${number}`, headSha: value.expectedHeadSha }; },
+    markPullRequestReady() { markedReady++; },
     createPullRequest: () => { creates++; },
     upsertRolloutComment: () => {},
   };
@@ -126,5 +181,6 @@ test("adopts explicit pre-controller consumer PRs instead of creating duplicates
     },
   });
   assert.equal(creates, 0);
+  assert.equal(markedReady, 2);
   assert.deepEqual(result.branches, { backend: "codex/legacy-authority", ide: "codex/legacy-authority" });
 });
