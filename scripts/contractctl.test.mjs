@@ -69,7 +69,7 @@ test("continue dry-run is mutation-free and does not require approval", async ()
   const record = {
     schemaVersion: 1,
     state: "awaiting_approval",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: backendRef(),
@@ -99,7 +99,7 @@ test("continue refuses real execution without exact confirmation", async () => {
   const record = {
     schemaVersion: 1,
     state: "awaiting_approval",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: backendRef(),
@@ -111,7 +111,7 @@ test("continue refuses real execution without exact confirmation", async () => {
     {
       github: {
         readRolloutRecord: () => record,
-        getPullRequest: () => ({ headSha: SHA, state: "OPEN", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] }),
+        getPullRequest: () => ({ headSha: SHA, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] }),
         getPullRequestFiles: filesForRepository,
       },
       io: output,
@@ -127,7 +127,7 @@ test("continue blocks draft consumer PRs before the first production-changing ac
   const record = {
     schemaVersion: 1,
     state: "awaiting_approval",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: backendRef(),
@@ -165,7 +165,7 @@ test("continue rejects a consumer diff TOCTOU change before any write", async ()
   const record = {
     schemaVersion: 1,
     state: "awaiting_approval",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA, diffEvidence: diffEvidence(SHA, ["contracts/lunascripts.lock.json"]) },
@@ -195,7 +195,7 @@ test("status, continue, and resume reject a rollout comment copied to a differen
   const record = {
     schemaVersion: 1,
     state: "awaiting_approval",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: originalUrl, headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: originalUrl, baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA, diffEvidence: diffEvidence(SHA, ["contracts/lunascripts.lock.json"]) },
@@ -224,13 +224,61 @@ test("status, continue, and resume reject a rollout comment copied to a differen
   }
 });
 
+test("fresh reload rejects a non-main upstream candidate before merge or persistence", async () => {
+  const calls = [];
+  const record = {
+    schemaVersion: 1,
+    state: "awaiting_approval",
+    upstream: {
+      repository: "cdotlock/lunascripts",
+      pullRequest: "https://github.com/cdotlock/lunascripts/pull/2",
+      baseBranch: "main",
+      headSha: SHA,
+      treeDigest: "sha256:" + "1".repeat(64),
+    },
+    contractVersion: "2.0.0",
+    changeClass: "major",
+    backend: backendRef(),
+    ide: ideRef(),
+    audit: boundAudit(),
+  };
+  const output = io();
+  const code = await main(
+    ["rollout", "continue", record.upstream.pullRequest, "--confirm", "APPROVE_CONTRACT_ROLLOUT"],
+    {
+      github: {
+        readRolloutRecord: () => record,
+        getPullRequest: (repository) => {
+          calls.push(["read", repository]);
+          return {
+            url: record.upstream.pullRequest,
+            headSha: SHA,
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            baseBranch: repository === "cdotlock/lunascripts" ? "release" : "main",
+            checks: [{ status: "completed", conclusion: "success" }],
+          };
+        },
+        getPullRequestFiles: filesForRepository,
+        upsertRolloutComment: () => calls.push(["write"]),
+      },
+      actions: { mergeUpstream: () => calls.push(["merge"]) },
+      io: output,
+    },
+  );
+  assert.equal(code, 1);
+  assert.match(output.stderr.join("\n"), /base.*main/i);
+  assert.equal(calls.some(([kind]) => kind === "write" || kind === "merge"), false);
+});
+
 test("continue refuses a durable resume whose stored approval digest is stale", async () => {
   const output = io();
   const calls = [];
   const record = {
     schemaVersion: 1,
     state: "executing",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: backendRef(),
@@ -245,7 +293,7 @@ test("continue refuses a durable resume whose stored approval digest is stale", 
     {
       github: {
         readRolloutRecord: () => record,
-        getPullRequest: () => ({ headSha: SHA, state: "OPEN", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] }),
+        getPullRequest: () => ({ headSha: SHA, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] }),
         getPullRequestFiles: filesForRepository,
         upsertRolloutComment: () => calls.push("comment"),
       },
@@ -264,7 +312,7 @@ test("resume revalidates a blocked rollout but is read-only without a recovery c
   const record = {
     schemaVersion: 1,
     state: "rollout_blocked",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: backendRef(),
@@ -303,7 +351,7 @@ test("confirmed blocked recovery resumes only from its durable checkpoint", asyn
   const record = {
     schemaVersion: 1,
     state: "rollout_blocked",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: backendRef(),
@@ -378,7 +426,7 @@ test("prepare can import a verified read-only bootstrap audit without dispatchin
   const output = io();
   const record = {
     schemaVersion: 1, state: "preparing",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
     contractVersion: "2.0.0", changeClass: "major",
     backend: backendRef(),
     ide: ideRef(),

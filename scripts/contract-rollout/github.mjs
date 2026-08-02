@@ -216,6 +216,13 @@ export function createGitHubClient(runner) {
     mergePullRequest(repository, number, expectedHeadSha, method = "squash") {
       if (!/^[0-9a-f]{40}$/.test(expectedHeadSha)) throw new Error("expectedHeadSha must be a full SHA");
       if (!new Set(["merge", "squash", "rebase"]).has(method)) throw new Error(`unsupported merge method: ${method}`);
+      const before = client.getPullRequest(repository, number);
+      if (before.headSha !== expectedHeadSha) throw new Error(`PR head ${before.headSha} does not match approved ${expectedHeadSha}`);
+      if (before.state === "MERGED") {
+        if (!before.mergeSha) throw new Error("merged pull request has no merge commit");
+        return before;
+      }
+      if (before.state !== "OPEN") throw new Error(`pull request is not open: ${before.state}`);
       runner.run("gh", [
         "pr",
         "merge",

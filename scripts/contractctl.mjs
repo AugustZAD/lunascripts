@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createCommandRunner } from "./contract-rollout/command.mjs";
-import { approvalDigest, isContractImpactingPath } from "./contract-rollout/core.mjs";
+import { UPSTREAM_REPOSITORY, approvalDigest, assertUpstreamAuthority, isContractImpactingPath } from "./contract-rollout/core.mjs";
 import { executeRollout } from "./contract-rollout/execution.mjs";
 import { createGitHubClient, parsePullRequestUrl } from "./contract-rollout/github.mjs";
 import { CONSUMERS, applyAuditReport, bindAuditReport, prepareRollout, verifyConsumerPullRequest } from "./contract-rollout/preparation.mjs";
@@ -16,6 +16,17 @@ import { createExecutionActions } from "./contract-rollout/runtime.mjs";
 const DEFAULT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONFIRM = "APPROVE_CONTRACT_ROLLOUT";
 const RESUME_CONFIRM = "APPROVE_CONTRACT_ROLLOUT_RESUME";
+const UPSTREAM_MERGED_STAGES = new Set([
+  "upstream_merged",
+  "consumers_repinned",
+  "consumer_checks_green",
+  "upstream_verified",
+  "backend_merged",
+  "stable_ring_resolved",
+  "backend_deployed",
+  "production_verified",
+  "ide_merged",
+]);
 
 function option(args, name) {
   const index = args.indexOf(name);
@@ -79,7 +90,9 @@ async function validateCommand(args, deps) {
 
 function loadFreshStatus(url, github) {
   const upstreamRef = parsePullRequestUrl(url);
+  if (upstreamRef.repository !== UPSTREAM_REPOSITORY) throw new Error(`command URL must use canonical upstream repository ${UPSTREAM_REPOSITORY}`);
   const record = github.readRolloutRecord(upstreamRef.repository, upstreamRef.number);
+  assertUpstreamAuthority(record.upstream);
   if (record.upstream.repository !== upstreamRef.repository || record.upstream.pullRequest !== url) {
     throw new Error("rollout record upstream pull request does not match the command URL container");
   }
@@ -92,6 +105,12 @@ function loadFreshStatus(url, github) {
     const parsed = parsePullRequestUrl(ref.pullRequest);
     const pr = github.getPullRequest(parsed.repository, parsed.number);
     if (pr.headSha !== ref.headSha) throw new Error(`${parsed.repository} head changed; approval and audits are invalid`);
+    if (ref === record.upstream) {
+      if (pr.baseBranch !== "main") throw new Error("upstream pull request base must be main");
+      if (!UPSTREAM_MERGED_STAGES.has(record.execution?.stage) && (pr.state !== "OPEN" || pr.mergeable !== "MERGEABLE")) {
+        throw new Error("upstream pull request must remain an open mergeable candidate before merge");
+      }
+    }
     const consumer = CONSUMERS.find((value) => value.repository === ref.repository);
     if (consumer) {
       const evidence = verifyConsumerPullRequest({ github, consumer, pullRequest: ref.pullRequest, expectedHeadSha: ref.headSha });

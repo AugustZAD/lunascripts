@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 const SHA_RE = /^[0-9a-f]{40}$/;
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
 const PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+$/;
+export const UPSTREAM_REPOSITORY = "cdotlock/lunascripts";
+const UPSTREAM_PR_URL_RE = /^https:\/\/github\.com\/cdotlock\/lunascripts\/pull\/\d+$/;
 
 const CONTRACT_FILES = new Set([
   "LS-SPEC.md",
@@ -119,6 +121,12 @@ function assertConsumer(value, label, requireDiffEvidence = false) {
   }
 }
 
+export function assertUpstreamAuthority(value) {
+  if (value?.repository !== UPSTREAM_REPOSITORY) throw new Error(`upstream must use canonical upstream repository ${UPSTREAM_REPOSITORY}`);
+  if (!UPSTREAM_PR_URL_RE.test(value.pullRequest ?? "")) throw new Error("upstream must use a canonical upstream pull request URL");
+  if (value.baseBranch !== "main") throw new Error("upstream pull request base must be main");
+}
+
 export function validateRolloutRecord(record) {
   if (!record || typeof record !== "object" || Array.isArray(record)) throw new Error("rollout record must be an object");
   if (record.schemaVersion !== 1) throw new Error("rollout schemaVersion must be 1");
@@ -128,6 +136,7 @@ export function validateRolloutRecord(record) {
     throw new Error("changeClass must be patch, minor, or major");
   }
   assertConsumer(record.upstream, "upstream");
+  assertUpstreamAuthority(record.upstream);
   if (!/^sha256:[0-9a-f]{64}$/.test(record.upstream.treeDigest ?? "")) {
     throw new Error("upstream.treeDigest must be a sha256 digest");
   }

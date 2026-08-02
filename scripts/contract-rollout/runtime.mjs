@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { resolveStableRingFromHealth } from "./execution.mjs";
 import { parsePullRequestUrl } from "./github.mjs";
-import { CONSUMERS, prepareConsumerWorkspace } from "./preparation.mjs";
+import { CONSUMERS, prepareConsumerWorkspace, verifyConsumerPullRequest } from "./preparation.mjs";
 
 const UPSTREAM_REPO = "cdotlock/lunascripts";
 const BACKEND_REPO = "cdotlock/lunaverse-backend";
@@ -46,14 +46,31 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
       const proof = createCanonicalRepinProof(record, canonicalSha, github.getTreeDigest(UPSTREAM_REPO, canonicalSha));
       const baseDir = mkdtempSync(join(tmpdir(), "lunascripts-canonical-repin-"));
       try {
+        const preflight = {};
+        for (const consumer of CONSUMERS) {
+          const approved = record[consumer.key];
+          const current = parsePullRequestUrl(approved.pullRequest);
+          const pr = github.getPullRequest(current.repository, current.number);
+          if (pr.headSha !== approved.headSha) throw new Error(`${consumer.repository} head changed from the approved candidate`);
+          if (!pr.headBranch) throw new Error(`${consumer.repository} PR has no head branch`);
+          const evidence = verifyConsumerPullRequest({
+            github,
+            consumer,
+            pullRequest: approved.pullRequest,
+            expectedHeadSha: approved.headSha,
+          });
+          if (JSON.stringify(evidence) !== JSON.stringify(approved.diffEvidence)) {
+            throw new Error(`${consumer.repository} pull request diff evidence changed after approval`);
+          }
+          preflight[consumer.key] = { approved, current, pr };
+        }
         const result = {};
         for (const consumer of CONSUMERS) {
-          const current = parsePullRequestUrl(record[consumer.key].pullRequest);
-          const pr = github.getPullRequest(current.repository, current.number);
-          if (!pr.headBranch) throw new Error(`${consumer.repository} PR has no head branch`);
+          const { approved, current, pr } = preflight[consumer.key];
           const updated = prepareConsumerWorkspace({
             runner, github, consumer, branch: pr.headBranch, upstreamSha: canonicalSha,
             contractVersion: record.contractVersion, upstreamUrl: record.upstream.pullRequest, baseDir,
+            existingPullRequest: { ...pr, number: current.number }, expectedHeadSha: approved.headSha,
           });
           if (parsePullRequestUrl(updated.pullRequest).number !== current.number) throw new Error(`${consumer.repository} canonical refresh created a different PR`);
           result[consumer.key] = updated;
@@ -73,7 +90,7 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
 
     async deployAndVerifyUpstream(revision) {
       const started = new Date(Date.now() - 5_000).toISOString();
-      github.dispatchWorkflow(UPSTREAM_REPO, "deploy-railway.yml", "main", {
+      github.dispatchWorkflow(UPSTREAM_REPO, "deploy-railway.yml", revision, {
         confirm: "DEPLOY_APPROVED_CONTRACT_ROLLOUT",
         revision,
       });

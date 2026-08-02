@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { applyAuditReport, bindAuditReport, prepareConsumerWorkspace, prepareRollout, rolloutBranch, verifyConsumerPullRequest } from "./preparation.mjs";
+import { applyAuditReport, bindAuditReport, changedFiles, prepareConsumerWorkspace, prepareRollout, rolloutBranch, verifyConsumerPullRequest } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
 const BACKEND_SHA = "b".repeat(40);
@@ -14,7 +14,7 @@ function preparingRecord() {
   return {
     schemaVersion: 1,
     state: "preparing",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
     contractVersion: "2.0.0",
     changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: BACKEND_SHA },
@@ -35,6 +35,32 @@ function bootstrapEnvelope(record = preparingRecord(), report = { readOnly: true
 
 test("uses a deterministic consumer branch", () => {
   assert.equal(rolloutBranch("2.0.0", SHA), "contract-rollout/v2.0.0-aaaaaaaa");
+});
+
+test("changed files use NUL-delimited porcelain and preserve rename source paths", () => {
+  const runner = {
+    capture(command, args, options) {
+      assert.equal(command, "git");
+      assert.deepEqual(args, ["status", "--porcelain=v1", "-z"]);
+      assert.equal(options.trim, false);
+      return [
+        "R  contracts/lunascripts/new name.json",
+        "contracts/lunascripts/old name.json",
+        " M contracts/lunascripts.lock.json",
+        "",
+      ].join("\0");
+    },
+  };
+  assert.deepEqual(changedFiles(runner, "/tmp/consumer"), [
+    "contracts/lunascripts/new name.json",
+    "contracts/lunascripts/old name.json",
+    "contracts/lunascripts.lock.json",
+  ]);
+});
+
+test("changed files fail closed on malformed NUL porcelain", () => {
+  const runner = { capture: () => " M contracts/lunascripts.lock.json" };
+  assert.throws(() => changedFiles(runner, "/tmp/consumer"), /malformed.*porcelain/i);
 });
 
 test("rejects an adopted Backend PR that already contains a committed migration", () => {
@@ -76,7 +102,7 @@ test("prepare rejects an adopted migration before touching its consumer branch",
   };
   const github = {
     getPullRequest(repository, number) {
-      if (repository === "cdotlock/lunascripts") return { headSha: SHA };
+      if (repository === "cdotlock/lunascripts") return { state: "OPEN", baseBranch: "main", mergeable: "MERGEABLE", headSha: SHA };
       return { number, state: "OPEN", headBranch: "codex/lunascripts-authority", baseBranch: "main", headSha: BACKEND_SHA };
     },
     getPullRequestFiles: () => ["contracts/lunascripts.lock.json", "prisma/migrations/20260802_unreviewed/migration.sql"],
@@ -94,6 +120,34 @@ test("prepare rejects an adopted migration before touching its consumer branch",
     /unapproved pull request paths.*prisma\/migrations/,
   );
   assert.equal(calls.some((call) => call[0] === "git" && ["clone", "push"].includes(call[1])), false);
+});
+
+test("prepare rejects a non-canonical or non-main upstream before consumer writes", () => {
+  const root = mkdtempSync(join(tmpdir(), "rollout-upstream-authority-"));
+  mkdirSync(join(root, "contract"));
+  writeFileSync(join(root, "contract/contract.json"), JSON.stringify({ contract_version: "2.0.0", change_class: "major" }));
+  for (const [url, pullRequest, expected] of [
+    ["https://github.com/attacker/lunascripts/pull/2", {}, /canonical upstream repository/],
+    ["https://github.com/cdotlock/lunascripts/pull/2", {
+      url: "https://github.com/cdotlock/lunascripts/pull/2",
+      state: "OPEN",
+      baseBranch: "release",
+      mergeable: "MERGEABLE",
+      headSha: SHA,
+    }, /base.*main/i],
+  ]) {
+    const writes = [];
+    const runner = { capture: (...args) => { writes.push(args); throw new Error("consumer or local write must not occur"); } };
+    const github = {
+      getPullRequest: () => pullRequest,
+      upsertRolloutComment: () => writes.push("comment"),
+    };
+    assert.throws(
+      () => prepareRollout({ upstreamUrl: url, root, runner, github, consumers: [] }),
+      expected,
+    );
+    assert.deepEqual(writes, []);
+  }
 });
 
 test("turns a read-only clean audit into one approval gate", () => {
@@ -155,7 +209,7 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
     capture(command, args) {
       calls.push([command, ...args]);
       if (command === "node" && args[0] === "update.mjs") return JSON.stringify({ commit: SHA });
-      if (command === "git" && args[0] === "status") return " M contracts/lunascripts/contract.json\n M contracts/lunascripts.lock.json";
+      if (command === "git" && args[0] === "status") return " M contracts/lunascripts/contract.json\0 M contracts/lunascripts.lock.json\0";
       if (command === "git" && args[0] === "rev-parse") return SHA;
       return "";
     },
@@ -194,7 +248,7 @@ test("permission failures stop with a resumable non-secret handoff", () => {
     },
   };
   const github = {
-    getPullRequest: () => ({ headSha: SHA }),
+    getPullRequest: () => ({ state: "OPEN", baseBranch: "main", mergeable: "MERGEABLE", headSha: SHA }),
     findPullRequestByHead: () => null,
   };
   const consumer = {
@@ -226,7 +280,7 @@ test("adopts explicit pre-controller consumer PRs instead of creating duplicates
   let markedReady = 0;
   const github = {
     getPullRequest(repo, number) {
-      if (repo === "cdotlock/lunascripts") return { headSha: SHA };
+      if (repo === "cdotlock/lunascripts") return { state: "OPEN", baseBranch: "main", mergeable: "MERGEABLE", headSha: SHA };
       return { number, state: "OPEN", isDraft: true, headBranch: "codex/legacy-authority", baseBranch: "main", headSha: SHA };
     },
     findPullRequestByHead: () => { throw new Error("adopted PR must not be rediscovered by deterministic branch"); },

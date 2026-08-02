@@ -22,7 +22,7 @@ function diffEvidence(headSha, files) {
 function record() {
   const pending = {
     schemaVersion: 1, state: "preparing",
-    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
     contractVersion: "2.0.0", changeClass: "major",
     backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA, diffEvidence: diffEvidence(SHA, ["contracts/lunascripts.lock.json"]) },
     ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA, diffEvidence: diffEvidence(SHA, ["vendor/lunascripts/contract/contract.json"]) },
@@ -124,6 +124,39 @@ test("resumes after a durable stage without repeating completed mutations", asyn
   assert.equal(resumedCalls.some((call) => call.startsWith("repin")), false);
   assert.equal(resumed.execution.consumerRepin.backend.headSha, CANON_BACKEND);
   assert.equal(resumed.backend.headSha, SHA);
+});
+
+test("resume converges an IDE-merged final-persist failure to durable complete", async () => {
+  const calls = [];
+  const saved = [];
+  let rejectFinalPersist = true;
+  const first = await executeRollout({
+    record: record(),
+    confirmed: true,
+    actions: successfulActions(calls),
+    persist: async (value) => {
+      saved.push(validateRolloutRecord(structuredClone(value)));
+      if (value.state === "complete" && value.execution?.stage === "ide_merged" && rejectFinalPersist) {
+        rejectFinalPersist = false;
+        throw new Error("comment final persist failed");
+      }
+    },
+  });
+  assert.equal(first.state, "rollout_blocked");
+  assert.equal(first.execution.stage, "ide_merged");
+
+  const resumedCalls = [];
+  const { failure: _failure, ...checkpoint } = first;
+  const resumed = await executeRollout({
+    record: { ...checkpoint, state: "executing" },
+    confirmed: true,
+    actions: successfulActions(resumedCalls),
+    persist: async (value) => saved.push(validateRolloutRecord(structuredClone(value))),
+  });
+  assert.equal(resumed.state, "complete");
+  assert.equal(resumed.execution.stage, "ide_merged");
+  assert.deepEqual(resumedCalls, []);
+  assert.equal(saved.at(-1).state, "complete");
 });
 
 test("stable ring resolution requires one direct healthy revision match", () => {

@@ -117,6 +117,10 @@ export async function executeRollout({ record: input, confirmed, actions, persis
       record = { ...record, state: "complete" };
       await advance("ide_merged", { ideMergeSha: merged.mergeSha });
     }
+    if (atLeast(record, "ide_merged") && record.state !== "complete") {
+      record = { ...record, state: "complete" };
+      await persist(record);
+    }
     return record;
   } catch (error) {
     record = {

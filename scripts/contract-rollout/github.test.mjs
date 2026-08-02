@@ -44,6 +44,7 @@ const record = {
   upstream: {
     repository: "cdotlock/lunascripts",
     pullRequest: "https://github.com/cdotlock/lunascripts/pull/2",
+    baseBranch: "main",
     headSha: SHA,
     treeDigest: "sha256:" + "1".repeat(64),
   },
@@ -149,7 +150,15 @@ test("reads exact PR heads and normalizes checks", () => {
 
 test("merge uses expected-head protection and verifies the merged result", () => {
   const mergeSha = "b".repeat(40);
-  const runner = fakeRunner([undefined, {
+  const runner = fakeRunner([{
+    number: 2,
+    url: "https://github.com/cdotlock/lunascripts/pull/2",
+    state: "OPEN",
+    headRefOid: SHA,
+    mergeCommit: null,
+    mergeable: "MERGEABLE",
+    statusCheckRollup: [],
+  }, undefined, {
     number: 2,
     url: "https://github.com/cdotlock/lunascripts/pull/2",
     state: "MERGED",
@@ -160,9 +169,27 @@ test("merge uses expected-head protection and verifies the merged result", () =>
   }]);
   const github = createGitHubClient(runner);
   const result = github.mergePullRequest("cdotlock/lunascripts", 2, SHA, "merge");
-  assert.equal(runner.calls[0].args.includes("--match-head-commit"), true);
-  assert.equal(runner.calls[0].args.includes(SHA), true);
+  const mergeCall = runner.calls.find((call) => call.kind === "run");
+  assert.equal(mergeCall.args.includes("--match-head-commit"), true);
+  assert.equal(mergeCall.args.includes(SHA), true);
   assert.equal(result.mergeSha, mergeSha);
+});
+
+test("merge reconciliation returns an already-merged exact head without another write", () => {
+  const mergeSha = "b".repeat(40);
+  const runner = fakeRunner([{
+    number: 15,
+    url: "https://github.com/cdotlock/lunaverse-ide/pull/15",
+    state: "MERGED",
+    headRefOid: SHA,
+    mergeCommit: { oid: mergeSha },
+    mergeable: "UNKNOWN",
+    statusCheckRollup: [],
+  }]);
+  const github = createGitHubClient(runner);
+  const result = github.mergePullRequest("cdotlock/lunaverse-ide", 15, SHA, "merge");
+  assert.equal(result.mergeSha, mergeSha);
+  assert.equal(runner.calls.some((call) => call.kind === "run"), false);
 });
 
 test("resolves the canonical tree digest from an exact commit", () => {

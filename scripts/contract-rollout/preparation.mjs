@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { nextRolloutState } from "./core.mjs";
+import { UPSTREAM_REPOSITORY, assertUpstreamAuthority, nextRolloutState } from "./core.mjs";
 import { parsePullRequestUrl } from "./github.mjs";
 
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -164,11 +164,27 @@ function prBody({ contractVersion, upstreamSha, upstreamUrl, key, files, evidenc
   ].join("\n");
 }
 
-function changedFiles(runner, cwd) {
-  return runner.capture("git", ["status", "--porcelain=v1"], { cwd })
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => line.slice(3));
+export function changedFiles(runner, cwd) {
+  const output = runner.capture("git", ["status", "--porcelain=v1", "-z"], { cwd, trim: false });
+  if (output === "") return [];
+  if (!output.endsWith("\0")) throw new Error("malformed git porcelain: missing NUL terminator");
+  const fields = output.split("\0");
+  fields.pop();
+  const paths = [];
+  for (let index = 0; index < fields.length; index++) {
+    const entry = fields[index];
+    if (entry.length < 4 || entry[2] !== " " || entry.slice(3).length === 0) {
+      throw new Error("malformed git porcelain entry");
+    }
+    const status = entry.slice(0, 2);
+    paths.push(entry.slice(3));
+    if (status.includes("R") || status.includes("C")) {
+      const source = fields[++index];
+      if (!source) throw new Error("malformed git porcelain rename entry");
+      paths.push(source);
+    }
+  }
+  return [...new Set(paths)];
 }
 
 function isOwned(path, owned) {
@@ -201,7 +217,7 @@ function handoff(error, upstreamUrl) {
   return failure;
 }
 
-export function prepareConsumerWorkspace({ runner, github, consumer, branch, upstreamSha, contractVersion, upstreamUrl, baseDir, existingPullRequest = null }) {
+export function prepareConsumerWorkspace({ runner, github, consumer, branch, upstreamSha, contractVersion, upstreamUrl, baseDir, existingPullRequest = null, expectedHeadSha = null }) {
   const cwd = join(baseDir, consumer.key);
   runner.capture("git", ["clone", `https://github.com/${consumer.repository}.git`, cwd]);
   const existing = existingPullRequest ?? github.findPullRequestByHead(consumer.repository, branch);
@@ -209,6 +225,10 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, ups
     runner.capture("git", ["fetch", "origin", "main", branch], { cwd });
     runner.capture("git", ["checkout", "-B", branch, `origin/${branch}`], { cwd });
     runner.capture("git", ["merge-base", "--is-ancestor", "origin/main", "HEAD"], { cwd });
+    if (expectedHeadSha) {
+      const checkedOutHead = runner.capture("git", ["rev-parse", "HEAD"], { cwd });
+      if (checkedOutHead !== expectedHeadSha) throw new Error(`${consumer.repository} checked out head does not match the approved head`);
+    }
   } else {
     runner.capture("git", ["fetch", "origin", "main"], { cwd });
     runner.capture("git", ["checkout", "-B", branch, "origin/main"], { cwd });
@@ -244,7 +264,12 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, ups
 
 export function prepareRollout({ upstreamUrl, root, runner, github, consumers = CONSUMERS, keepWorkspaces = false, existingPullRequests = {} }) {
   const parsed = parsePullRequestUrl(upstreamUrl);
+  if (parsed.repository !== UPSTREAM_REPOSITORY) throw handoff(new Error(`upstream must use canonical upstream repository ${UPSTREAM_REPOSITORY}`), upstreamUrl);
   const upstreamPr = github.getPullRequest(parsed.repository, parsed.number);
+  assertUpstreamAuthority({ repository: parsed.repository, pullRequest: upstreamUrl, baseBranch: upstreamPr.baseBranch });
+  if (upstreamPr.state !== "OPEN" || upstreamPr.mergeable !== "MERGEABLE") {
+    throw handoff(new Error("upstream pull request must be an open mergeable candidate"), upstreamUrl);
+  }
   const localHead = runner.capture("git", ["rev-parse", "HEAD"], { cwd: root });
   if (upstreamPr.headSha !== localHead) throw new Error(`local HEAD ${localHead} does not match upstream PR head ${upstreamPr.headSha}`);
   const manifest = JSON.parse(readFileSync(join(root, "contract/contract.json"), "utf8"));
@@ -281,6 +306,7 @@ export function prepareRollout({ upstreamUrl, root, runner, github, consumers = 
       upstream: {
         repository: parsed.repository,
         pullRequest: upstreamUrl,
+        baseBranch: upstreamPr.baseBranch,
         headSha: upstreamPr.headSha,
         treeDigest: treeDigest(runner, root, upstreamPr.headSha),
       },

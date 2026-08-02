@@ -58,7 +58,7 @@ test("offline three-repository prepare and approval dry-run never mutate product
   let preparedRecord;
   const github = {
     getPullRequest(repo, number) {
-      if (repo === "cdotlock/lunascripts") return { headSha: upstream.sha, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", checks: [{ status: "completed", conclusion: "success" }] };
+      if (repo === "cdotlock/lunascripts") return { headSha: upstream.sha, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] };
       const pr = pulls.get(`${repo}/${number}`);
       return { ...pr, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] };
     },

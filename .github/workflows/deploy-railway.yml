@@ -24,6 +24,7 @@ jobs:
     name: railway revision-bound deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: production
     env:
       RAILWAY_PROJECT_ID: 64a837fc-1712-492f-b571-e1fec8090cd7
       RAILWAY_ENVIRONMENT: production
@@ -42,12 +43,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = main
           test "$DEPLOY_CONFIRM" = DEPLOY_APPROVED_CONTRACT_ROLLOUT
           printf '%s' "$TARGET_REVISION" | grep -Eq '^[0-9a-f]{40}$'
+          test "$TARGET_REVISION" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$TARGET_REVISION"
-          git fetch origin main
-          git merge-base --is-ancestor "$TARGET_REVISION" origin/main
           printf '%s\n' "$TARGET_REVISION" > revision.txt
 
       - name: Install Railway CLI

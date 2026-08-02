@@ -27,6 +27,7 @@ function record(overrides = {}) {
     upstream: {
       repository: "cdotlock/lunascripts",
       pullRequest: "https://github.com/cdotlock/lunascripts/pull/2",
+      baseBranch: "main",
       headSha: SHA_A,
       treeDigest: "sha256:" + "1".repeat(64),
     },
@@ -139,6 +140,21 @@ test("validates durable rollout records", () => {
   assert.throws(
     () => validateRolloutRecord({ ...record(), audit: { status: "passed", blockers: 0, repairRecommended: 0 } }),
     /bound provenance/,
+  );
+});
+
+test("rollout records bind upstream authority to the canonical main pull request", () => {
+  assert.throws(
+    () => validateRolloutRecord({ ...record(), upstream: { ...record().upstream, repository: "attacker/lunascripts" } }),
+    /canonical upstream repository/,
+  );
+  assert.throws(
+    () => validateRolloutRecord({ ...record(), upstream: { ...record().upstream, pullRequest: "https://github.com/attacker/lunascripts/pull/2" } }),
+    /canonical upstream pull request URL/,
+  );
+  assert.throws(
+    () => validateRolloutRecord({ ...record(), upstream: { ...record().upstream, baseBranch: "release" } }),
+    /base.*main/i,
   );
 });
 

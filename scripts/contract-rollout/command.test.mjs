@@ -23,3 +23,13 @@ test("redacts explicitly sensitive values from command failures", () => {
 test("rejects invalid JSON with a bounded diagnostic", () => {
   assert.throws(() => parseJsonOutput("not-json", "fixture"), /fixture returned invalid JSON/);
 });
+
+test("capture can preserve leading status bytes and trailing NUL delimiters", () => {
+  const runner = createCommandRunner();
+  const output = runner.capture(
+    process.execPath,
+    ["-e", "process.stdout.write(' M file name\\0')"],
+    { trim: false },
+  );
+  assert.equal(output, " M file name\0");
+});

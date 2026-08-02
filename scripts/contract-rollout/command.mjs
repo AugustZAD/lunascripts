@@ -11,13 +11,14 @@ export function createCommandRunner(defaults = {}) {
   return {
     capture(command, args, options = {}) {
       try {
-        return execFileSync(command, args, {
+        const output = execFileSync(command, args, {
           cwd: options.cwd,
           env: options.env ?? process.env,
           encoding: "utf8",
           maxBuffer,
           stdio: ["ignore", "pipe", "pipe"],
-        }).trim();
+        });
+        return options.trim === false ? output : output.trim();
       } catch (error) {
         const sensitive = options.sensitiveValues ?? [];
         const detail = redact(error?.stderr || error?.message || error, sensitive).trim();
