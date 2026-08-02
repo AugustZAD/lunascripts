@@ -11,7 +11,6 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 LS_BIN = Path(__file__).resolve().parent / "bin" / "lsc"
-REVISION_FILE = Path(__file__).resolve().parent / "revision.txt"
 
 app = FastAPI(
     title="Lunascripts API",
@@ -366,5 +365,4 @@ async def health():
             status_code=503,
             content={"status": "unhealthy", "reason": "lsc binary not found"},
         )
-    revision = REVISION_FILE.read_text(encoding="utf-8").strip() if REVISION_FILE.exists() else "development"
-    return {"status": "ok", "revision": revision}
+    return {"status": "ok"}

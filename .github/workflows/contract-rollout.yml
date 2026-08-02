@@ -1,4 +1,4 @@
-name: Contract authority and rollout
+name: Contract authority and consumer preparation
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  contract:
+  authority:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +21,32 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Test compiler and rollout controller
+      - name: Test compiler and preparation controller
         run: |
           go test ./...
           node --test scripts/contract-rollout/*.test.mjs scripts/contractctl.test.mjs
-      - name: Validate contract-impacting pull request metadata
+      - name: Validate contract metadata
         if: ${{ github.event_name == 'pull_request' }}
         run: node scripts/contractctl.mjs rollout validate --base '${{ github.event.pull_request.base.sha }}' --head '${{ github.event.pull_request.head.sha }}'
+
+  sync-consumers:
+    if: ${{ github.event_name == 'push' }}
+    needs: authority
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.LUNAVERSE_CONTRACT_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve the unique merged upstream PR
+        id: source
+        run: |
+          set -euo pipefail
+          url="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '[.[] | select(.base.ref == "main" and .merged_at != null)] | if length == 1 then .[0].html_url else error("expected one merged main PR") end')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Synchronize the original consumer PRs
+        run: node scripts/contractctl.mjs rollout consumers sync '${{ steps.source.outputs.url }}'

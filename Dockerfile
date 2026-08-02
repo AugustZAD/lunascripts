@@ -18,7 +18,6 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api_server.py ./
-COPY revision.txt ./
 COPY --from=gobuild /out/lsc /app/bin/lsc
 
 ENV PORT=8080

@@ -1,149 +1,32 @@
-name: Deploy to Railway
+name: MANUAL ONLY — Deploy to Railway
 
+# This workflow is intentionally disconnected from contract preparation.
+# A human operator may run it from the Actions UI after completing their own review.
 on:
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: Controller interlock for an approved contract rollout.
-        required: true
-        type: string
-      revision:
-        description: Exact protected-main commit approved by the rollout controller.
-        required: true
-        type: string
-
-permissions:
-  contents: read
+  workflow_dispatch: {}
 
 concurrency:
   group: railway-deploy-main
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: railway revision-bound deploy
+  manual-release:
+    name: MANUAL ONLY — railway up
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     environment: production
     env:
       RAILWAY_PROJECT_ID: 64a837fc-1712-492f-b571-e1fec8090cd7
       RAILWAY_ENVIRONMENT: production
       RAILWAY_SERVICE_ID: b33addae-782a-469a-929e-56c8fd09d70c
-      HEALTH_URL: https://moonshort-script-production.up.railway.app/health
-      DEPLOY_CONFIRM: ${{ inputs.confirm }}
-      TARGET_REVISION: ${{ inputs.revision }}
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.revision }}
-          fetch-depth: 0
-
-      - name: Verify approved immutable main revision
-        run: |
-          set -euo pipefail
-          test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = main
-          test "$DEPLOY_CONFIRM" = DEPLOY_APPROVED_CONTRACT_ROLLOUT
-          printf '%s' "$TARGET_REVISION" | grep -Eq '^[0-9a-f]{40}$'
-          test "$TARGET_REVISION" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD)" = "$TARGET_REVISION"
-          printf '%s\n' "$TARGET_REVISION" > revision.txt
-
       - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Capture active pre-rollout deployment
         run: |
-          set -euo pipefail
-          status_output="$(railway status --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --json)"
-          environment_id="$(printf '%s' "$status_output" | jq -r --arg name "$RAILWAY_ENVIRONMENT" '[.. | objects | select(.name? == $name) | .id? | select(type == "string")] | unique | if length == 1 then .[0] else empty end')"
-          test -n "$environment_id"
-          active_output="$(railway api --compact --raw-var "environmentId=${environment_id}" --raw-var "serviceId=${RAILWAY_SERVICE_ID}" 'query activeDeployments($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { activeDeployments { id status } } }')"
-          pre_id="$(printf '%s' "$active_output" | jq -r '.data.serviceInstance.activeDeployments | if length == 1 then .[0].id else empty end')"
-          test -n "$pre_id"
-          pre_health="$(curl -fsSL --max-time 20 "$HEALTH_URL")"
-          pre_revision="$(printf '%s' "$pre_health" | jq -r '.revision // empty')"
-          if ! printf '%s' "$pre_revision" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "Legacy deployment has no revision field; exact deployment identity will be used for the one-time bootstrap rollback."
-            pre_revision=""
-          fi
-          echo "RAILWAY_ENVIRONMENT_ID=${environment_id}" >> "$GITHUB_ENV"
-          echo "PRE_ROLLOUT_DEPLOYMENT_ID=${pre_id}" >> "$GITHUB_ENV"
-          echo "PRE_ROLLOUT_REVISION=${pre_revision}" >> "$GITHUB_ENV"
-
-      - name: Deploy exact revision
-        run: |
-          set -euo pipefail
-          output="$(railway up --service "$RAILWAY_SERVICE_ID" --detach --yes --json --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --message "lunascripts ${TARGET_REVISION}")"
-          deployment_id="$(printf '%s' "$output" | jq -r '.deploymentId // empty')"
-          test -n "$deployment_id"
-          echo "TARGET_DEPLOYMENT_ID=${deployment_id}" >> "$GITHUB_ENV"
-          for attempt in $(seq 1 60); do
-            deployments="$(railway deployment list --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --service "$RAILWAY_SERVICE_ID" --limit 20 --json)"
-            status="$(printf '%s' "$deployments" | jq -r --arg id "$deployment_id" '.[] | select(.id == $id) | .status')"
-            case "$status" in
-              SUCCESS) break ;;
-              FAILED|CRASHED|REMOVED) exit 1 ;;
-            esac
-            sleep 10
-          done
-          test "${status:-}" = SUCCESS
-          echo "TARGET_BECAME_ACTIVE=1" >> "$GITHUB_ENV"
-
-      - name: Verify deployed revision
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 30); do
-            body="$(curl -fsSL --max-time 20 "$HEALTH_URL" || true)"
-            if printf '%s' "$body" | jq -e --arg revision "$TARGET_REVISION" '.status == "ok" and .revision == $revision' >/dev/null; then
-              exit 0
-            fi
-            sleep 10
-          done
-          exit 1
-
-      - name: Restore captured deployment after active-target failure
-        if: ${{ failure() }}
-        run: |
-          set -euo pipefail
-          if [ "${TARGET_BECAME_ACTIVE:-}" != "1" ]; then
-            echo "Target never became active; leaving the previous deployment untouched."
-            exit 0
-          fi
-          rollback="$(railway api --compact --raw-var "id=${PRE_ROLLOUT_DEPLOYMENT_ID}" 'mutation rollback($id: String!) { deploymentRedeploy(id: $id, usePreviousImageTag: true) { id } }')"
-          rollback_id="$(printf '%s' "$rollback" | jq -r '.data.deploymentRedeploy.id // empty')"
-          test -n "$rollback_id"
-          echo "ROLLBACK_DEPLOYMENT_ID=${rollback_id}" >> "$GITHUB_ENV"
-          for attempt in $(seq 1 60); do
-            deployments="$(railway deployment list --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --service "$RAILWAY_SERVICE_ID" --limit 20 --json)"
-            status="$(printf '%s' "$deployments" | jq -r --arg id "$rollback_id" '.[] | select(.id == $id) | .status')"
-            [ "$status" = SUCCESS ] && break
-            case "$status" in FAILED|CRASHED|REMOVED) exit 1 ;; esac
-            sleep 10
-          done
-          test "${status:-}" = SUCCESS
-          active_output="$(railway api --compact --raw-var "environmentId=${RAILWAY_ENVIRONMENT_ID}" --raw-var "serviceId=${RAILWAY_SERVICE_ID}" 'query activeDeployments($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { activeDeployments { id status } } }')"
-          printf '%s' "$active_output" | jq -e --arg id "$rollback_id" '.data.serviceInstance.activeDeployments | length == 1 and .[0].id == $id and .[0].status == "SUCCESS"' >/dev/null
-          body="$(curl -fsSL --max-time 20 "$HEALTH_URL")"
-          if [ -n "$PRE_ROLLOUT_REVISION" ]; then
-            printf '%s' "$body" | jq -e --arg revision "$PRE_ROLLOUT_REVISION" '.status == "ok" and .revision == $revision' >/dev/null
-          else
-            printf '%s' "$body" | jq -e '.status == "ok"' >/dev/null
-          fi
-          echo "ROLLBACK_VERIFIED=1" >> "$GITHUB_ENV"
-
-      - name: Record deployment identity
-        if: ${{ always() }}
+          curl -fsSL https://railway.com/install.sh | bash
+          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+      - name: Run the human-requested release
         env:
-          JOB_STATUS: ${{ job.status }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
-          jq -n --arg status "$JOB_STATUS" --arg revision "$TARGET_REVISION" --arg deploymentId "${TARGET_DEPLOYMENT_ID:-}" --arg previousDeploymentId "${PRE_ROLLOUT_DEPLOYMENT_ID:-}" --arg rollbackDeploymentId "${ROLLBACK_DEPLOYMENT_ID:-}" --argjson targetBecameActive "${TARGET_BECAME_ACTIVE:-0}" --argjson rollbackVerified "${ROLLBACK_VERIFIED:-0}" '{ok: ($status == "success"), status: $status, revision: $revision, deploymentId: $deploymentId, previousDeploymentId: $previousDeploymentId, targetBecameActive: ($targetBecameActive == 1), rollbackDeploymentId: $rollbackDeploymentId, rollbackVerified: ($rollbackVerified == 1)}' > lunascripts-deployment-result.json
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: lunascripts-deployment-${{ github.run_id }}
-          path: lunascripts-deployment-result.json
-          if-no-files-found: error
-          retention-days: 30
+          railway link --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --service "$RAILWAY_SERVICE_ID"
+          railway up --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT" --service "$RAILWAY_SERVICE_ID" --ci

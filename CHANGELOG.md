@@ -6,10 +6,10 @@ Every contract release declares `change_class` in `contract/contract.json`:
 - `minor` adds optional behavior that older consumers can safely ignore;
 - `major` removes, renames, tightens, or changes existing behavior.
 
-The rollout automation calculates a conservative lower bound from Schema and
+Consumer preparation calculates a conservative lower bound from Schema and
 behavior fixtures. A release whose declaration understates that bound is
-rejected. Stored production content is always audited read-only; migration is
-an explicit human repair workflow.
+rejected. Stored production content is always audited read-only; repairs and
+all integration or production actions remain explicit human workflows.
 
 ## 2.0.0
 
@@ -23,6 +23,10 @@ Breaking authoring contract:
 - `contract/episode.schema.json` and `contract/fixtures/` are the machine-readable
   consumer contract. IDE and Backend must pin an exact upstream commit and may
   not add LS-language restrictions locally.
+- Preparation automation creates or updates only Backend/IDE pull requests,
+  verifies their full diff and CI, and reports sanitized read-only audit findings.
+  After this PR is merged, the same consumer PRs are synchronized to its exact
+  canonical merge SHA. Every later integration and production step is manual.
 
 Migration: rename every stored author signal write and every matching condition
 reader to the same uppercase name before activating content under contract v2.

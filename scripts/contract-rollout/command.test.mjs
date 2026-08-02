@@ -3,7 +3,36 @@ import test from "node:test";
 
 import * as commandModule from "./command.mjs";
 
-const { createCommandRunner, parseJsonOutput } = commandModule;
+const { assertCommandAllowed, createCommandRunner, parseJsonOutput, TEST_COMMAND_TIMEOUT_MS } = commandModule;
+
+test("exports one explicit validation timeout for updater and test commands", () => {
+  assert.equal(TEST_COMMAND_TIMEOUT_MS, 10 * 60_000);
+});
+
+test("denylist blocks merge, deploy, force, tag, and main pushes before execution", () => {
+  for (const [command, args] of [
+    ["gh", ["pr", "merge", "2", "--repo", "cdotlock/lunascripts"]],
+    ["railway", ["up"]],
+    ["gh", ["workflow", "run", "deploy-railway.yml", "--repo", "cdotlock/lunascripts"]],
+    ["git", ["push", "--force-with-lease", "origin", "contract-rollout/v2.0.0-aaaaaaaa"]],
+    ["git", ["push", "origin", "main"]],
+    ["git", ["push", "origin", "refs/tags/v2.0.0"]],
+    ["gh", ["api", "--method", "PUT", "repos/cdotlock/lunascripts/pulls/2/merge"]],
+    ["gh", ["api", "--method", "POST", "repos/cdotlock/lunascripts/actions/workflows/deploy.yml/dispatches"]],
+  ]) {
+    assert.throws(() => assertCommandAllowed(command, args), /denied|forbidden|preparation-only/i);
+  }
+});
+
+test("allowlist permits only fixed audit dispatch and consumer branch or PR writes", () => {
+  assert.doesNotThrow(() => assertCommandAllowed("gh", [
+    "workflow", "run", "lunascripts-contract-audit.yml", "--repo", "cdotlock/lunaverse-backend", "--ref", "contract-rollout/v2.0.0-aaaaaaaa",
+  ]));
+  assert.doesNotThrow(() => assertCommandAllowed("git", ["push", "origin", "contract-rollout/v2.0.0-aaaaaaaa"]));
+  assert.doesNotThrow(() => assertCommandAllowed("gh", ["pr", "edit", "128", "--repo", "cdotlock/lunaverse-backend", "--body", "manual"]));
+  assert.doesNotThrow(() => assertCommandAllowed("gh", ["api", "--method", "POST", "repos/cdotlock/lunaverse-backend/issues/128/comments", "-f", "body=report"]));
+  assert.throws(() => assertCommandAllowed("gh", ["pr", "edit", "2", "--repo", "cdotlock/lunascripts", "--body", "bad"]), /denied|forbidden|preparation-only/i);
+});
 
 test("redacts explicitly sensitive values from command failures", () => {
   const runner = createCommandRunner();

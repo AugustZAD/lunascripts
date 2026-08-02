@@ -1,5 +1,55 @@
 import { execFileSync } from "node:child_process";
 
+export const TEST_COMMAND_TIMEOUT_MS = 10 * 60_000;
+
+const CONSUMER_REPOSITORIES = new Set(["cdotlock/lunaverse-backend", "cdotlock/lunaverse-ide"]);
+
+function denied(message) {
+  throw new Error(`preparation-only command denied: ${message}`);
+}
+
+function optionValue(args, name) {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
+export function assertCommandAllowed(command, args = []) {
+  const executable = String(command).split("/").at(-1);
+  if (executable === "railway") denied("Railway commands are manual only");
+  if (executable === "gh" && args[0] === "pr" && args[1] === "merge") denied("pull request merge is outside preparation");
+  if (executable === "gh" && args[0] === "workflow" && args[1] === "run") {
+    if (args[2] !== "lunascripts-contract-audit.yml" || optionValue(args, "--repo") !== "cdotlock/lunaverse-backend") {
+      denied("only the fixed read-only Backend audit workflow may be dispatched");
+    }
+  }
+  if (executable === "gh" && args[0] === "pr" && new Set(["create", "edit", "ready"]).has(args[1])) {
+    if (!CONSUMER_REPOSITORIES.has(optionValue(args, "--repo"))) denied("only Backend or IDE consumer PR metadata may be written");
+  }
+  if (executable === "gh" && args[0] === "api") {
+    const method = String(optionValue(args, "--method") ?? optionValue(args, "-X") ?? "GET").toUpperCase();
+    if (method !== "GET") {
+      const endpoint = args.find((arg) => /^repos\//.test(String(arg))) ?? "";
+      const repository = "(?:cdotlock/lunascripts|cdotlock/lunaverse-backend|cdotlock/lunaverse-ide)";
+      const createComment = method === "POST" && new RegExp(`^repos/${repository}/issues/\\d+/comments$`).test(endpoint);
+      const updateComment = method === "PATCH" && new RegExp(`^repos/${repository}/issues/comments/\\d+$`).test(endpoint);
+      if (!createComment && !updateComment) denied("GitHub API writes are limited to preparation report comments");
+    }
+  }
+  if (executable === "git" && args[0] === "push") {
+    if (args.some((arg) => arg === "-f" || String(arg).startsWith("--force"))) denied("force push is forbidden");
+    const positional = args.slice(1).filter((arg, index, values) => {
+      if (arg === "--set-upstream" || arg === "-u") return false;
+      if (index > 0 && new Set(["--repo", "--push-option"]).has(values[index - 1])) return false;
+      return !String(arg).startsWith("-");
+    });
+    const [remote, ...refs] = positional;
+    if (remote !== "origin" || refs.length !== 1 || !refs[0].startsWith("contract-rollout/")) {
+      denied("git push must target one explicit contract-rollout consumer branch on origin");
+    }
+    if (refs[0] === "main" || refs[0].startsWith("refs/tags/")) denied("main and tag pushes are forbidden");
+  }
+}
+
 function redact(text, values = []) {
   let result = String(text ?? "");
   for (const value of values.filter(Boolean)) result = result.split(String(value)).join("[REDACTED]");
@@ -24,7 +74,7 @@ export function commandPolicy(command, args = []) {
     || (executable === "go" && args[0] === "test")
     || (executable === "node" && args[0] === "--test")
   ) {
-    return { category: "test", timeoutMs: 10 * 60_000 };
+    return { category: "test", timeoutMs: TEST_COMMAND_TIMEOUT_MS };
   }
   return { category: "external-command", timeoutMs: 2 * 60_000 };
 }
@@ -43,6 +93,7 @@ export function createCommandRunner(defaults = {}) {
   const maxBuffer = defaults.maxBuffer ?? 16 * 1024 * 1024;
   return {
     capture(command, args, options = {}) {
+      assertCommandAllowed(command, args);
       const policy = commandPolicy(command, args);
       const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
       try {
@@ -65,6 +116,7 @@ export function createCommandRunner(defaults = {}) {
       }
     },
     run(command, args, options = {}) {
+      assertCommandAllowed(command, args);
       const policy = commandPolicy(command, args);
       const timeoutMs = options.timeoutMs ?? policy.timeoutMs;
       try {
