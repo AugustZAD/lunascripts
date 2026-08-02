@@ -64,8 +64,10 @@ export function validatePreparationReport(report) {
   if (!SEMVER_RE.test(report.contractVersion ?? "")) throw new Error("contractVersion must be semver");
   for (const key of ["backend", "ide"]) {
     const consumer = report.consumers?.[key];
+    const branch = String(consumer?.branch ?? "");
+    const safeBranch = branch.length > 0 && !/\s|:/.test(branch) && !new Set(["main", "master"]).has(branch) && !branch.startsWith("refs/tags/");
     if (!consumer || !/^https:\/\/github\.com\/.+\/pull\/\d+$/.test(consumer.pullRequest ?? "") ||
-        !String(consumer.branch ?? "").startsWith("contract-rollout/")) throw new Error(`${key} consumer report is invalid`);
+        !safeBranch) throw new Error(`${key} consumer report branch is invalid`);
     assertSha(consumer.headSha, `${key} headSha`);
   }
   if (!new Set(["pending", "passed", "blocked"]).has(report.audit?.status)) throw new Error("audit status is invalid");

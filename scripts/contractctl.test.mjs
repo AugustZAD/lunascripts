@@ -26,3 +26,27 @@ test("removed controller actions are unknown and perform no calls", async () => 
   assert.deepEqual(calls, []);
   assert.match(sink.err[0], /unknown/);
 });
+
+test("status rejects a report whose adopted branch no longer matches the exact PR head branch", async () => {
+  const sink = io();
+  const sha = "a".repeat(40);
+  const report = {
+    schemaVersion: 2, kind: "consumer-preparation",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", candidateHeadSha: sha, pinSha: sha },
+    contractVersion: "2.0.0",
+    consumers: {
+      backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", branch: "codex/lunascripts-authority", headSha: sha, diffEvidence: { baseSha: sha, remoteFiles: [] } },
+      ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", branch: "codex/lunascripts-authority", headSha: sha, diffEvidence: { baseSha: sha, remoteFiles: [] } },
+    },
+    audit: { status: "pending", blockers: [], repairRecommendations: [], findings: [] },
+  };
+  const github = {
+    readPreparationReport: () => report,
+    getPullRequest: (repository) => repository === "cdotlock/lunascripts"
+      ? { state: "OPEN", baseBranch: "main", headSha: sha }
+      : { state: "OPEN", baseBranch: "main", baseSha: sha, headSha: sha, headBranch: "codex/other" },
+    getPullRequestFiles: () => [],
+  };
+  assert.equal(await main(["rollout", "status", "https://github.com/cdotlock/lunascripts/pull/2", "--json"], { io: sink.value, runner: {}, github }), 1);
+  assert.match(sink.err[0], /branch|identity/i);
+});

@@ -68,7 +68,7 @@ function verifyStatus(url, github) {
   for (const [key, consumer] of Object.entries(report.consumers)) {
     const ref = parsePullRequestUrl(consumer.pullRequest);
     const pr = github.getPullRequest(ref.repository, ref.number);
-    if (pr.state !== "OPEN" || pr.baseBranch !== "main" || pr.baseSha !== consumer.diffEvidence.baseSha || pr.headSha !== consumer.headSha) throw new Error(`${key} consumer PR identity changed`);
+    if (pr.state !== "OPEN" || pr.baseBranch !== "main" || pr.headBranch !== consumer.branch || pr.baseSha !== consumer.diffEvidence.baseSha || pr.headSha !== consumer.headSha) throw new Error(`${key} consumer PR identity or branch changed`);
     const files = github.getPullRequestFiles(ref.repository, ref.number);
     if (JSON.stringify(files) !== JSON.stringify(consumer.diffEvidence.remoteFiles)) throw new Error(`${key} consumer paginated diff changed`);
     fresh[key] = { url: consumer.pullRequest, headSha: consumer.headSha, checks: pr.checks };

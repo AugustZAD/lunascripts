@@ -116,3 +116,22 @@ test("bound read-only audit keeps every sanitized finding and separate manual su
   assert.match(audited.audit.findingsDigest, /^sha256:[0-9a-f]{64}$/);
   assert.doesNotThrow(() => validatePreparationReport(audited));
 });
+
+test("preparation reports accept exact adopted branches but reject protected or refspec branches", () => {
+  const base = {
+    schemaVersion: 2, kind: "consumer-preparation",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", baseBranch: "main", candidateHeadSha: SHA, pinSha: SHA },
+    contractVersion: "2.0.0",
+    consumers: {
+      backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", branch: "codex/lunascripts-authority", headSha: SHA },
+      ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", branch: "codex/lunascripts-authority", headSha: SHA },
+    },
+    audit: { status: "pending", blockers: [], repairRecommendations: [], findings: [] },
+  };
+  assert.doesNotThrow(() => validatePreparationReport(structuredClone(base)));
+  for (const branch of ["main", "master", "refs/tags/v2.0.0", ":codex/lunascripts-authority", "bad branch"]) {
+    const report = structuredClone(base);
+    report.consumers.backend.branch = branch;
+    assert.throws(() => validatePreparationReport(report), /branch|consumer report/i);
+  }
+});
