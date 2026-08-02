@@ -269,6 +269,25 @@ function completeRemoteEvidence(github, consumer, pr, local) {
   return validateDiffEvidence(evidence, consumer.allowed);
 }
 
+function verifyAdoptedPullRequest(github, consumer, existing, branch, expectedHeadSha) {
+  const fresh = github.getPullRequest(consumer.repository, existing.number);
+  if (fresh.state !== "OPEN" || fresh.baseBranch !== "main" || fresh.headBranch !== branch || fresh.headSha !== expectedHeadSha) {
+    throw new Error(`${consumer.repository} changed before consumer branch publication`);
+  }
+  return fresh;
+}
+
+export function publishConsumerBranch({ runner, github, consumer, existing, branch, cwd, startingHeadSha, headSha, changed }) {
+  if (existing) {
+    verifyAdoptedPullRequest(github, consumer, existing, branch, startingHeadSha);
+    if (!changed) return;
+    runner.authorizePushBranch({ cwd, repository: consumer.repository, branch, expectedRemoteHeadSha: startingHeadSha, headSha });
+    runner.capture("git", ["push", "origin", branch], { cwd, stage: "push verified adopted consumer branch" });
+    return;
+  }
+  if (changed) runner.capture("git", ["push", "origin", branch], { cwd });
+}
+
 export function prepareConsumerWorkspace({ runner, github, consumer, branch, pinSha, contractVersion, upstreamUrl, baseDir, existingPullRequest = null, expectedHeadSha = null, requireExisting = false }) {
   const cwd = join(baseDir, consumer.key);
   runner.capture("git", ["clone", "--filter=blob:none", "--no-checkout", `https://github.com/${consumer.repository}.git`, cwd], { stage: `clone ${consumer.key} consumer` });
@@ -294,7 +313,7 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, pin
   }
   const headSha = runner.capture("git", ["rev-parse", "HEAD"], { cwd });
   const localEvidence = buildDiffEvidence({ runner, cwd, baseSha, headSha, allowed: consumer.allowed, expectedTreeSha: expected.treeSha, expectedPatchSha256: expected.patchSha256 });
-  runner.capture("git", ["push", "origin", branch], { cwd });
+  publishConsumerBranch({ runner, github, consumer, existing, branch, cwd, startingHeadSha, headSha, changed: changed.length > 0 });
   const title = `chore(ls): consume contract ${contractVersion}`;
   const body = manualBody(contractVersion, pinSha, upstreamUrl, localEvidence);
   const pr = existing

@@ -34,6 +34,29 @@ test("allowlist permits only fixed audit dispatch and consumer branch or PR writ
   assert.throws(() => assertCommandAllowed("gh", ["pr", "edit", "2", "--repo", "cdotlock/lunascripts", "--body", "bad"]), /denied|forbidden|preparation-only/i);
 });
 
+test("a dynamically authorized adopted branch is exact and all adjacent push forms remain denied", () => {
+  const authorization = {
+    repository: "cdotlock/lunaverse-backend",
+    branch: "codex/lunascripts-authority",
+    expectedRemoteHeadSha: "a".repeat(40),
+    headSha: "b".repeat(40),
+  };
+  assert.doesNotThrow(() => assertCommandAllowed(
+    "git",
+    ["push", "origin", authorization.branch],
+    { pushAuthorization: authorization },
+  ));
+  for (const args of [
+    ["push", "origin", "codex/other"],
+    ["push", "origin", "main"],
+    ["push", "origin", "master"],
+    ["push", "origin", "refs/tags/v2.0.0"],
+    ["push", "origin", ":codex/lunascripts-authority"],
+    ["push", "--delete", "origin", "codex/lunascripts-authority"],
+    ["push", "--force", "origin", "codex/lunascripts-authority"],
+  ]) assert.throws(() => assertCommandAllowed("git", args, { pushAuthorization: authorization }), /denied|forbidden/i);
+});
+
 test("redacts explicitly sensitive values from command failures", () => {
   const runner = createCommandRunner();
   const secret = "railway-secret-value";
