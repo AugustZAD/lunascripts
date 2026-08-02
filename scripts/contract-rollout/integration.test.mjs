@@ -48,9 +48,10 @@ test("offline three-repository prepare and approval dry-run never mutate product
   const runner = {
     capture(command, args, options = {}) {
       commandCalls.push([command, ...args]);
-      const actual = command === "git" && args[0] === "clone" && remotes.has(args[1])
-        ? [args[0], remotes.get(args[1]), ...args.slice(2)]
-        : args;
+      const remoteIndex = command === "git" && args[0] === "clone"
+        ? args.findIndex((arg) => remotes.has(arg))
+        : -1;
+      const actual = remoteIndex >= 0 ? args.with(remoteIndex, remotes.get(args[remoteIndex])) : args;
       return execFileSync(command, actual, { cwd: options.cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
     },
   };

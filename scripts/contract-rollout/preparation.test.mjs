@@ -231,6 +231,15 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
   assert.equal(created, false);
   assert.equal(result.diffEvidence.baseBranch, "main");
   assert.deepEqual(result.diffEvidence.files, ["contracts/lunascripts.lock.json", "contracts/lunascripts/contract.json"]);
+  assert.deepEqual(calls[0].slice(0, -1), [
+    "git",
+    "clone",
+    "--filter=blob:none",
+    "--no-checkout",
+    "https://github.com/cdotlock/lunaverse-backend.git",
+    "/tmp/backend",
+  ]);
+  assert.deepEqual(calls[0].at(-1), { stage: "clone backend consumer" });
   assert.equal(calls.some((call) => call.join(" ").includes(`update.mjs --ref ${SHA}`)), true);
   assert.equal(calls.some((call) => call[0] === "railway" || call.includes("merge")), false);
   const installIndex = calls.findIndex((call) => call[0] === "pnpm" && call[1] === "install");
@@ -238,6 +247,54 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
   assert.ok(installIndex > calls.findIndex((call) => call[0] === "git" && call[1] === "checkout"));
   assert.ok(installIndex < updateIndex);
   assert.deepEqual(calls[installIndex].at(-1), { cwd: "/tmp/backend" });
+});
+
+test("clone timeout stops before commit, push, Ready, or rollout comment writes", () => {
+  const root = mkdtempSync(join(tmpdir(), "rollout-clone-timeout-"));
+  mkdirSync(join(root, "contract"));
+  writeFileSync(join(root, "contract/contract.json"), JSON.stringify({ contract_version: "2.0.0", change_class: "major" }));
+  const externalWrites = [];
+  const runner = {
+    capture(command, args) {
+      if (command === "git" && args[0] === "rev-parse") return SHA;
+      if (command === "git" && args[0] === "clone") throw new Error("clone backend consumer timed out after 600000 ms");
+      if (command === "git" && ["commit", "push"].includes(args[0])) externalWrites.push([command, ...args]);
+      return "";
+    },
+  };
+  const github = {
+    getPullRequest(repository, number) {
+      if (repository === "cdotlock/lunascripts") {
+        return { state: "OPEN", baseBranch: "main", mergeable: "MERGEABLE", headSha: SHA };
+      }
+      return { number, state: "OPEN", isDraft: true, headBranch: "codex/lunascripts-authority", baseBranch: "main", headSha: BACKEND_SHA };
+    },
+    getPullRequestFiles: () => [],
+    updatePullRequest: () => externalWrites.push("update PR"),
+    createPullRequest: () => externalWrites.push("create PR"),
+    markPullRequestReady: () => externalWrites.push("ready PR"),
+    upsertRolloutComment: () => externalWrites.push("comment"),
+  };
+  const consumer = {
+    key: "backend",
+    repository: "cdotlock/lunaverse-backend",
+    update: () => ["node", ["update"]],
+    verify: [],
+    owned: [],
+    allowed: [],
+  };
+  assert.throws(
+    () => prepareRollout({
+      upstreamUrl: "https://github.com/cdotlock/lunascripts/pull/2",
+      root,
+      runner,
+      github,
+      consumers: [consumer],
+      existingPullRequests: { backend: "https://github.com/cdotlock/lunaverse-backend/pull/128" },
+    }),
+    /clone backend consumer timed out/,
+  );
+  assert.deepEqual(externalWrites, []);
 });
 
 test("dependency install failure stops before commit, push, ready, or rollout comment", () => {

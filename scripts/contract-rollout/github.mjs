@@ -64,7 +64,7 @@ function normalizeChecks(items = []) {
 }
 
 export function createGitHubClient(runner) {
-  const json = (args, label) => parseJsonOutput(runner.capture("gh", args), label);
+  const json = (args, label, options) => parseJsonOutput(runner.capture("gh", args, options), label);
   const listComments = (repository, number) =>
     json(["api", `repos/${repository}/issues/${number}/comments`, "--paginate"], "GitHub comments");
 
@@ -86,7 +86,7 @@ export function createGitHubClient(runner) {
       return `sha256:${createHash("sha256").update(treeSha).digest("hex")}`;
     },
 
-    getPullRequest(repository, number) {
+    getPullRequest(repository, number, commandOptions) {
       const pr = json([
         "pr",
         "view",
@@ -95,7 +95,7 @@ export function createGitHubClient(runner) {
         repository,
         "--json",
         "number,url,state,isDraft,headRefName,baseRefName,headRefOid,mergeCommit,mergeable,statusCheckRollup",
-      ], "GitHub pull request");
+      ], "GitHub pull request", commandOptions);
       return {
         number: pr.number,
         url: pr.url,
@@ -164,13 +164,17 @@ export function createGitHubClient(runner) {
     waitPullRequestChecks(repository, number, expectedHeadSha, timeoutMs = 30 * 60_000) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
-        const pr = client.getPullRequest(repository, number);
+        const remaining = deadline - Date.now();
+        const pr = client.getPullRequest(repository, number, {
+          timeoutMs: Math.max(1, Math.min(30_000, remaining)),
+          stage: `poll ${repository} pull request checks`,
+        });
         if (pr.headSha !== expectedHeadSha) throw new Error(`${repository} PR head changed while checks were running`);
         const checks = pr.checks;
         const failed = checks.find((check) => check.status === "completed" && check.conclusion !== "success");
         if (failed) throw new Error(`${repository} check failed: ${failed.name}`);
         if (checks.length > 0 && checks.every((check) => check.status === "completed" && check.conclusion === "success")) return pr;
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(10_000, Math.max(0, deadline - Date.now())));
       }
       throw new Error(`${repository} pull request checks timed out`);
     },
@@ -244,11 +248,11 @@ export function createGitHubClient(runner) {
       runner.run("gh", args);
     },
 
-    findWorkflowRun(repository, workflow, { createdAfter, expectedHeadSha } = {}) {
+    findWorkflowRun(repository, workflow, { createdAfter, expectedHeadSha, commandTimeoutMs, commandStage } = {}) {
       const runs = json([
         "run", "list", "--repo", repository, "--workflow", workflow, "--event", "workflow_dispatch",
         "--limit", "20", "--json", "databaseId,headSha,headBranch,status,conclusion,createdAt,url",
-      ], "GitHub workflow runs").filter((run) => {
+      ], "GitHub workflow runs", commandTimeoutMs ? { timeoutMs: commandTimeoutMs, stage: commandStage } : undefined).filter((run) => {
         if (expectedHeadSha && run.headSha !== expectedHeadSha) return false;
         if (createdAfter && new Date(run.createdAt) < new Date(createdAfter)) return false;
         return true;
@@ -258,7 +262,9 @@ export function createGitHubClient(runner) {
     },
 
     watchWorkflowRun(repository, runId) {
-      runner.run("gh", ["run", "watch", String(runId), "--repo", repository]);
+      runner.run("gh", ["run", "watch", String(runId), "--repo", repository], {
+        stage: `watch ${repository} workflow run ${runId}`,
+      });
       const run = json(["run", "view", String(runId), "--repo", repository, "--json", "databaseId,headSha,status,conclusion,url"], "GitHub workflow run");
       if (run.status !== "completed") throw new Error(`workflow run ${runId} is not complete`);
       return run;
@@ -270,10 +276,15 @@ export function createGitHubClient(runner) {
       let lastError;
       while (Date.now() < deadline) {
         try {
-          return client.findWorkflowRun(repository, workflow, options);
+          const remaining = deadline - Date.now();
+          return client.findWorkflowRun(repository, workflow, {
+            ...options,
+            commandTimeoutMs: Math.max(1, Math.min(30_000, remaining)),
+            commandStage: `locate ${repository} workflow ${workflow}`,
+          });
         } catch (error) {
           lastError = error;
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(2_000, Math.max(0, deadline - Date.now())));
         }
       }
       throw new Error(`workflow dispatch did not become visible: ${lastError?.message ?? "timeout"}`);

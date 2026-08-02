@@ -23,8 +23,8 @@ function fakeRunner(responses = []) {
   const calls = [];
   return {
     calls,
-    capture(command, args) {
-      calls.push({ kind: "capture", command, args });
+    capture(command, args, options) {
+      calls.push({ kind: "capture", command, args, options });
       const next = responses.shift();
       if (next instanceof Error) throw next;
       return typeof next === "string" ? next : JSON.stringify(next ?? {});
@@ -71,6 +71,37 @@ test("parses only canonical GitHub pull request URLs", () => {
     number: 2,
   });
   assert.throws(() => parsePullRequestUrl("https://example.com/pull/2"), /GitHub pull request/);
+});
+
+test("check polling bounds each GitHub read by the remaining deadline", () => {
+  const sentinel = new Error("simulated hung GitHub read");
+  const runner = fakeRunner([sentinel]);
+  const github = createGitHubClient(runner);
+  assert.throws(
+    () => github.waitPullRequestChecks("cdotlock/lunaverse-backend", 128, SHA, 45_000),
+    /simulated hung GitHub read/,
+  );
+  assert.deepEqual(runner.calls[0].options, {
+    timeoutMs: 30_000,
+    stage: "poll cdotlock/lunaverse-backend pull request checks",
+  });
+});
+
+test("workflow lookup accepts a bounded timeout for one GitHub read", () => {
+  const runner = fakeRunner([[]]);
+  const github = createGitHubClient(runner);
+  assert.throws(
+    () => github.findWorkflowRun("cdotlock/lunaverse-backend", "audit.yml", {
+      expectedHeadSha: SHA,
+      commandTimeoutMs: 12_345,
+      commandStage: "locate Backend audit workflow",
+    }),
+    /found 0/,
+  );
+  assert.deepEqual(runner.calls[0].options, {
+    timeoutMs: 12_345,
+    stage: "locate Backend audit workflow",
+  });
 });
 
 test("round-trips one marked rollout comment", () => {

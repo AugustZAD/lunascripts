@@ -220,7 +220,13 @@ function handoff(error, upstreamUrl) {
 
 export function prepareConsumerWorkspace({ runner, github, consumer, branch, upstreamSha, contractVersion, upstreamUrl, baseDir, existingPullRequest = null, expectedHeadSha = null }) {
   const cwd = join(baseDir, consumer.key);
-  runner.capture("git", ["clone", `https://github.com/${consumer.repository}.git`, cwd]);
+  runner.capture("git", [
+    "clone",
+    "--filter=blob:none",
+    "--no-checkout",
+    `https://github.com/${consumer.repository}.git`,
+    cwd,
+  ], { stage: `clone ${consumer.key} consumer` });
   const existing = existingPullRequest ?? github.findPullRequestByHead(consumer.repository, branch);
   if (existing) {
     runner.capture("git", ["fetch", "origin", "main", branch], { cwd });
