@@ -200,14 +200,15 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
   const consumer = {
     key: "backend",
     repository: "cdotlock/lunaverse-backend",
+    install: ["pnpm", ["install", "--frozen-lockfile"]],
     update: (sha) => ["node", ["update.mjs", "--ref", sha, "--json"]],
     verify: [["node", ["--test", "authority.test.mjs"]]],
     owned: ["contracts/lunascripts", "contracts/lunascripts.lock.json"],
     allowed: ["contracts/lunascripts", "contracts/lunascripts.lock.json"],
   };
   const runner = {
-    capture(command, args) {
-      calls.push([command, ...args]);
+    capture(command, args, options = {}) {
+      calls.push([command, ...args, options]);
       if (command === "node" && args[0] === "update.mjs") return JSON.stringify({ commit: SHA });
       if (command === "git" && args[0] === "status") return " M contracts/lunascripts/contract.json\0 M contracts/lunascripts.lock.json\0";
       if (command === "git" && args[0] === "rev-parse") return SHA;
@@ -232,6 +233,60 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
   assert.deepEqual(result.diffEvidence.files, ["contracts/lunascripts.lock.json", "contracts/lunascripts/contract.json"]);
   assert.equal(calls.some((call) => call.join(" ").includes(`update.mjs --ref ${SHA}`)), true);
   assert.equal(calls.some((call) => call[0] === "railway" || call.includes("merge")), false);
+  const installIndex = calls.findIndex((call) => call[0] === "pnpm" && call[1] === "install");
+  const updateIndex = calls.findIndex((call) => call[0] === "node" && call[1] === "update.mjs");
+  assert.ok(installIndex > calls.findIndex((call) => call[0] === "git" && call[1] === "checkout"));
+  assert.ok(installIndex < updateIndex);
+  assert.deepEqual(calls[installIndex].at(-1), { cwd: "/tmp/backend" });
+});
+
+test("dependency install failure stops before commit, push, ready, or rollout comment", () => {
+  const root = mkdtempSync(join(tmpdir(), "rollout-install-failure-"));
+  mkdirSync(join(root, "contract"));
+  writeFileSync(join(root, "contract/contract.json"), JSON.stringify({ contract_version: "2.0.0", change_class: "major" }));
+  const externalWrites = [];
+  const runner = {
+    capture(command, args) {
+      if (command === "git" && args[0] === "rev-parse") return SHA;
+      if (command === "pnpm" && args[0] === "install") throw new Error("dependency install failed");
+      if ((command === "git" && ["commit", "push"].includes(args[0])) || command === "node") externalWrites.push([command, ...args]);
+      return "";
+    },
+  };
+  const github = {
+    getPullRequest(repository, number) {
+      if (repository === "cdotlock/lunascripts") {
+        return { state: "OPEN", baseBranch: "main", mergeable: "MERGEABLE", headSha: SHA };
+      }
+      return { number, state: "OPEN", isDraft: true, headBranch: "codex/lunascripts-authority", baseBranch: "main", headSha: BACKEND_SHA };
+    },
+    getPullRequestFiles: () => [],
+    updatePullRequest: () => externalWrites.push("update PR"),
+    createPullRequest: () => externalWrites.push("create PR"),
+    markPullRequestReady: () => externalWrites.push("ready PR"),
+    upsertRolloutComment: () => externalWrites.push("comment"),
+  };
+  const consumer = {
+    key: "backend",
+    repository: "cdotlock/lunaverse-backend",
+    install: ["pnpm", ["install", "--frozen-lockfile"]],
+    update: () => ["node", ["update"]],
+    verify: [],
+    owned: [],
+    allowed: [],
+  };
+  assert.throws(
+    () => prepareRollout({
+      upstreamUrl: "https://github.com/cdotlock/lunascripts/pull/2",
+      root,
+      runner,
+      github,
+      consumers: [consumer],
+      existingPullRequests: { backend: "https://github.com/cdotlock/lunaverse-backend/pull/128" },
+    }),
+    /dependency install failed/,
+  );
+  assert.deepEqual(externalWrites, []);
 });
 
 test("permission failures stop with a resumable non-secret handoff", () => {

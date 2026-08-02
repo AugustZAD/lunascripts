@@ -12,6 +12,7 @@ export const CONSUMERS = Object.freeze([
   {
     key: "backend",
     repository: "cdotlock/lunaverse-backend",
+    install: ["pnpm", ["install", "--frozen-lockfile"]],
     update: (sha) => ["node", ["scripts/update-lunascripts-contract.mjs", "--ref", sha, "--json"]],
     verify: [
       ["node", ["--test", "scripts/update-lunascripts-contract.test.mjs"]],
@@ -234,6 +235,10 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, ups
     runner.capture("git", ["checkout", "-B", branch, "origin/main"], { cwd });
   }
 
+  if (consumer.install) {
+    const [installCommand, installArgs] = consumer.install;
+    runner.capture(installCommand, installArgs, { cwd });
+  }
   const [updateCommand, updateArgs] = consumer.update(upstreamSha);
   const updateResult = runner.capture(updateCommand, updateArgs, { cwd });
   JSON.parse(updateResult);
