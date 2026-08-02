@@ -31,10 +31,12 @@ export function commandPolicy(command, args = []) {
 
 function failure(command, error, { category, timeoutMs, stage, sensitiveValues = [] }) {
   const operation = stage ? `${stage} [${category}]` : category;
-  const timedOut = error?.code === "ETIMEDOUT" || (error?.status === null && error?.signal);
+  const timedOut = error?.code === "ETIMEDOUT";
+  const signal = error?.signal ? `signal ${redact(error.signal, sensitiveValues)}` : "";
   const detail = redact(error?.stderr || error?.message || error, sensitiveValues).trim();
+  const context = [signal, detail].filter(Boolean).join("; ");
   const reason = timedOut ? `timed out after ${timeoutMs} ms` : "failed";
-  return new Error(`${operation} ${command} ${reason}${detail ? `: ${detail}` : ""}`);
+  return new Error(`${operation} ${command} ${reason}${context ? `: ${context}` : ""}`);
 }
 
 export function createCommandRunner(defaults = {}) {

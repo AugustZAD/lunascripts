@@ -91,3 +91,23 @@ test("capture terminates a hung child at its override timeout without leaking se
     },
   );
 });
+
+test("capture reports an explicit SIGTERM as a redacted failure, not a timeout", () => {
+  const runner = createCommandRunner();
+  const secret = "sigterm-secret-value";
+  assert.throws(
+    () => runner.capture(
+      process.execPath,
+      ["-e", `process.stderr.write(${JSON.stringify(secret)}); process.kill(process.pid, "SIGTERM")`],
+      { sensitiveValues: [secret] },
+    ),
+    (error) => {
+      assert.match(error.message, /failed/i);
+      assert.doesNotMatch(error.message, /timed out/i);
+      assert.match(error.message, /SIGTERM/);
+      assert.match(error.message, /\[REDACTED\]/);
+      assert.equal(error.message.includes(secret), false);
+      return true;
+    },
+  );
+});
