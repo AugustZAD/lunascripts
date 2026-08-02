@@ -87,10 +87,10 @@ function handoff(error, upstreamUrl) {
   return failure;
 }
 
-export function prepareConsumerWorkspace({ runner, github, consumer, branch, upstreamSha, contractVersion, upstreamUrl, baseDir }) {
+export function prepareConsumerWorkspace({ runner, github, consumer, branch, upstreamSha, contractVersion, upstreamUrl, baseDir, existingPullRequest = null }) {
   const cwd = join(baseDir, consumer.key);
   runner.capture("git", ["clone", `https://github.com/${consumer.repository}.git`, cwd]);
-  const existing = github.findPullRequestByHead(consumer.repository, branch);
+  const existing = existingPullRequest ?? github.findPullRequestByHead(consumer.repository, branch);
   if (existing) {
     runner.capture("git", ["fetch", "origin", "main", branch], { cwd });
     runner.capture("git", ["checkout", "-B", branch, `origin/${branch}`], { cwd });
@@ -126,20 +126,31 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, ups
   return { repository: consumer.repository, pullRequest: pr.url, headSha: pr.headSha };
 }
 
-export function prepareRollout({ upstreamUrl, root, runner, github, consumers = CONSUMERS, keepWorkspaces = false }) {
+export function prepareRollout({ upstreamUrl, root, runner, github, consumers = CONSUMERS, keepWorkspaces = false, existingPullRequests = {} }) {
   const parsed = parsePullRequestUrl(upstreamUrl);
   const upstreamPr = github.getPullRequest(parsed.repository, parsed.number);
   const localHead = runner.capture("git", ["rev-parse", "HEAD"], { cwd: root });
   if (upstreamPr.headSha !== localHead) throw new Error(`local HEAD ${localHead} does not match upstream PR head ${upstreamPr.headSha}`);
   const manifest = JSON.parse(readFileSync(join(root, "contract/contract.json"), "utf8"));
-  const branch = rolloutBranch(manifest.contract_version, upstreamPr.headSha);
+  const defaultBranch = rolloutBranch(manifest.contract_version, upstreamPr.headSha);
   const baseDir = mkdtempSync(join(tmpdir(), "lunascripts-rollout-"));
   const prepared = {};
+  const branches = {};
   try {
     for (const consumer of consumers) {
+      let existingPullRequest = null;
+      if (existingPullRequests[consumer.key]) {
+        const adopted = parsePullRequestUrl(existingPullRequests[consumer.key]);
+        if (adopted.repository !== consumer.repository) throw new Error(`${consumer.key} PR must belong to ${consumer.repository}`);
+        existingPullRequest = github.getPullRequest(adopted.repository, adopted.number);
+        if (existingPullRequest.state !== "OPEN" || !existingPullRequest.headBranch) throw new Error(`${consumer.key} PR must be open with a readable head branch`);
+        existingPullRequest = { ...existingPullRequest, number: adopted.number };
+      }
+      const branch = existingPullRequest?.headBranch ?? defaultBranch;
+      branches[consumer.key] = branch;
       prepared[consumer.key] = prepareConsumerWorkspace({
         runner, github, consumer, branch, upstreamSha: upstreamPr.headSha,
-        contractVersion: manifest.contract_version, upstreamUrl, baseDir,
+        contractVersion: manifest.contract_version, upstreamUrl, baseDir, existingPullRequest,
       });
     }
     const record = {
@@ -158,7 +169,7 @@ export function prepareRollout({ upstreamUrl, root, runner, github, consumers = 
       audit: { status: "pending", blockers: 0, repairRecommended: 0 },
     };
     github.upsertRolloutComment(parsed.repository, parsed.number, record);
-    return { branch, record };
+    return { branch: defaultBranch, branches, record };
   } catch (error) {
     throw handoff(error, upstreamUrl);
   } finally {

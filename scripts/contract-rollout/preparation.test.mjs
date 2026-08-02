@@ -89,3 +89,42 @@ test("permission failures stop with a resumable non-secret handoff", () => {
     (error) => error.code === "ROLLOUT_HANDOFF" && /rollout prepare/.test(error.message) && !error.message.includes("DO_NOT_LEAK"),
   );
 });
+
+test("adopts explicit pre-controller consumer PRs instead of creating duplicates", () => {
+  const root = mkdtempSync(join(tmpdir(), "rollout-adopt-"));
+  mkdirSync(join(root, "contract"));
+  writeFileSync(join(root, "contract/contract.json"), JSON.stringify({ contract_version: "2.0.0", change_class: "major" }));
+  const calls = [];
+  const runner = {
+    capture(command, args) {
+      calls.push([command, ...args]);
+      if (command === "git" && args[0] === "rev-parse") return SHA;
+      if (command === "git" && args[0] === "ls-tree") return `100644 blob ${SHA}\tcontract/contract.json`;
+      if (command === "git" && args[0] === "status") return "";
+      if (command === "node") return "{}";
+      return "";
+    },
+  };
+  let creates = 0;
+  const github = {
+    getPullRequest(repo, number) {
+      if (repo === "cdotlock/lunascripts") return { headSha: SHA };
+      return { number, state: "OPEN", headBranch: "codex/legacy-authority", headSha: SHA };
+    },
+    findPullRequestByHead: () => { throw new Error("adopted PR must not be rediscovered by deterministic branch"); },
+    updatePullRequest(repo, number, value) { return { number, url: `https://github.com/${repo}/pull/${number}`, headSha: value.expectedHeadSha }; },
+    createPullRequest: () => { creates++; },
+    upsertRolloutComment: () => {},
+  };
+  const consumer = (key, repository) => ({ key, repository, update: () => ["node", ["update"]], verify: [], owned: [] });
+  const result = prepareRollout({
+    upstreamUrl: "https://github.com/cdotlock/lunascripts/pull/2", root, runner, github,
+    consumers: [consumer("backend", "cdotlock/lunaverse-backend"), consumer("ide", "cdotlock/lunaverse-ide")],
+    existingPullRequests: {
+      backend: "https://github.com/cdotlock/lunaverse-backend/pull/128",
+      ide: "https://github.com/cdotlock/lunaverse-ide/pull/15",
+    },
+  });
+  assert.equal(creates, 0);
+  assert.deepEqual(result.branches, { backend: "codex/legacy-authority", ide: "codex/legacy-authority" });
+});

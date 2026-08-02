@@ -114,8 +114,17 @@ async function continueCommand(url, args, deps) {
 }
 
 async function prepareCommand(url, args, deps) {
-  const prepared = prepareRollout({ upstreamUrl: url, root: deps.root, runner: deps.runner, github: deps.github });
-  deps.io.out(`Prepared Backend and IDE PRs on ${prepared.branch}.`);
+  const prepared = prepareRollout({
+    upstreamUrl: url,
+    root: deps.root,
+    runner: deps.runner,
+    github: deps.github,
+    existingPullRequests: {
+      backend: option(args, "--backend-pr"),
+      ide: option(args, "--ide-pr"),
+    },
+  });
+  deps.io.out(`Prepared Backend (${prepared.branches.backend}) and IDE (${prepared.branches.ide}) PRs.`);
   if (has(args, "--no-wait-audit")) {
     deps.io.out("Audit not dispatched; rerun prepare without --no-wait-audit to reach the approval gate.");
     return 0;
@@ -125,7 +134,7 @@ async function prepareCommand(url, args, deps) {
   deps.github.dispatchWorkflow(
     prepared.record.backend.repository,
     "lunascripts-contract-audit.yml",
-    prepared.branch,
+    prepared.branches.backend,
     {
       upstream_sha: prepared.record.upstream.headSha,
       backend_sha: prepared.record.backend.headSha,
