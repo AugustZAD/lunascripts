@@ -37,13 +37,13 @@ export const CONSUMERS = Object.freeze([
       ["node", ["--test", "test/lunascripts-authority.test.mjs", "test/agent-guidance-contract.test.mjs", "test/update-vendor.test.mjs"]],
       ["go", ["test", "./..."], { cwd: "vendor/lunascripts" }],
     ],
-    owned: ["vendor/lunascripts", "vendor/README.md", ".bin/lsc", "agents/adaptation/skills/episode-writer/ls-spec.md", "agents/_shared/knowledge/LS-SPEC.md"],
+    owned: ["vendor/lunascripts", "vendor/README.md", "agents/adaptation/skills/episode-writer/ls-spec.md", "agents/_shared/knowledge/LS-SPEC.md"],
     allowed: [
       ".github/workflows/lunascripts-authority.yml", "AGENTS.md", "agents/_shared/knowledge/LS-SPEC.md",
       "agents/adaptation/skills/entity-planner/SKILL.md", "agents/adaptation/skills/episode-writer/ls-spec.md",
       "agents/adaptation/skills/planner-reviewer/SKILL.md", "package.json", "scripts/check-lunascripts-authority.mjs",
       "scripts/update-vendor.mjs", "test/agent-guidance-contract.test.mjs", "test/lunascripts-authority.test.mjs",
-      "test/update-vendor.test.mjs", "vendor/README.md", "vendor/lunascripts", ".bin/lsc",
+      "test/update-vendor.test.mjs", "vendor/README.md", "vendor/lunascripts",
     ],
   },
 ]);

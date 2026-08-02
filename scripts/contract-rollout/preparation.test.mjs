@@ -25,6 +25,12 @@ test("Backend preparation allowlist excludes production release workflow", () =>
   assert.equal(backend.allowed.includes(".github/workflows/railway-shared-persistence-env-deploy.yml"), false);
 });
 
+test("IDE preparation never stages its ignored local validation binary", () => {
+  const ide = CONSUMERS.find((consumer) => consumer.key === "ide");
+  assert.equal(ide.owned.includes(".bin/lsc"), false);
+  assert.equal(ide.allowed.includes(".bin/lsc"), false);
+});
+
 test("changed files preserve NUL-safe rename source paths", () => {
   const runner = { capture: () => `R  new name\0old name\0 M plain\0` };
   assert.deepEqual(changedFiles(runner, "/tmp/repo"), ["new name", "old name", "plain"]);
