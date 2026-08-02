@@ -43,6 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF_NAME" = main
           test "$DEPLOY_CONFIRM" = DEPLOY_APPROVED_CONTRACT_ROLLOUT
           printf '%s' "$TARGET_REVISION" | grep -Eq '^[0-9a-f]{40}$'
           test "$TARGET_REVISION" = "$GITHUB_SHA"

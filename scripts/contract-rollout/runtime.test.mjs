@@ -144,6 +144,7 @@ test("canonical repin rejects a fetched branch drift before updater or remote wr
 test("upstream production deploy is an exact approved controller dispatch", async () => {
   const calls = [];
   const github = {
+    getBranchSha: (...args) => { calls.push(["branch", ...args]); return SHA; },
     dispatchWorkflow: (...args) => calls.push(args),
     waitForWorkflowRun: () => ({ databaseId: 77 }),
     watchWorkflowRun: () => ({ conclusion: "success", url: "https://github.test/run/77" }),
@@ -154,10 +155,25 @@ test("upstream production deploy is an exact approved controller dispatch", asyn
     fetchFn: async () => ({ ok: true, json: async () => ({ status: "ok", revision: SHA }) }),
   });
   await actions.deployAndVerifyUpstream(SHA);
-  assert.deepEqual(calls, [[
-    "cdotlock/lunascripts",
-    "deploy-railway.yml",
-    SHA,
-    { confirm: "DEPLOY_APPROVED_CONTRACT_ROLLOUT", revision: SHA },
-  ]]);
+  assert.deepEqual(calls, [
+    ["branch", "cdotlock/lunascripts", "main"],
+    [
+      "cdotlock/lunascripts",
+      "deploy-railway.yml",
+      "main",
+      { confirm: "DEPLOY_APPROVED_CONTRACT_ROLLOUT", revision: SHA },
+    ],
+  ]);
+
+  const driftCalls = [];
+  const driftActions = createExecutionActions({
+    github: {
+      getBranchSha: () => "b".repeat(40),
+      dispatchWorkflow: (...args) => driftCalls.push(args),
+    },
+    runner: {},
+    fetchFn: async () => { throw new Error("unexpected fetch"); },
+  });
+  await assert.rejects(() => driftActions.deployAndVerifyUpstream(SHA), /canonical main.*revision/i);
+  assert.deepEqual(driftCalls, []);
 });

@@ -26,6 +26,7 @@ test("merging main cannot auto-deploy and controller dispatch binds an approved 
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /DEPLOY_APPROVED_CONTRACT_ROLLOUT/);
   assert.match(workflow, /inputs\.revision/);
+  assert.match(workflow, /test "\$GITHUB_REF_NAME" = main/);
   assert.match(workflow, /test "\$TARGET_REVISION" = "\$GITHUB_SHA"/);
   assert.doesNotMatch(workflow, /merge-base --is-ancestor/);
   assert.match(workflow, /\n\s+environment:\s*production\s*$/m);

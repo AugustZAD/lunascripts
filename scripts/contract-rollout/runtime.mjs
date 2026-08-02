@@ -89,8 +89,11 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
     },
 
     async deployAndVerifyUpstream(revision) {
+      if (github.getBranchSha(UPSTREAM_REPO, "main") !== revision) {
+        throw new Error("upstream canonical main does not match the deployment revision");
+      }
       const started = new Date(Date.now() - 5_000).toISOString();
-      github.dispatchWorkflow(UPSTREAM_REPO, "deploy-railway.yml", revision, {
+      github.dispatchWorkflow(UPSTREAM_REPO, "deploy-railway.yml", "main", {
         confirm: "DEPLOY_APPROVED_CONTRACT_ROLLOUT",
         revision,
       });
