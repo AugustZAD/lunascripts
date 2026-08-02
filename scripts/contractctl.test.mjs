@@ -104,3 +104,32 @@ test("validate detects contract paths and reads the manifest", async () => {
   assert.equal(code, 0);
   assert.match(output.stdout.join("\n"), /contract-impacting/);
 });
+
+test("prepare can import a verified read-only bootstrap audit without dispatching a workflow", async () => {
+  const root = mkdtempSync(join(tmpdir(), "contractctl-audit-import-"));
+  const report = join(root, "audit.json");
+  writeFileSync(report, JSON.stringify({ readOnly: true, blockers: 0, repairRecommended: 7 }));
+  const output = io();
+  const record = {
+    schemaVersion: 1, state: "preparing",
+    upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: "sha256:" + "1".repeat(64) },
+    contractVersion: "2.0.0", changeClass: "major",
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    audit: { status: "pending", blockers: 0, repairRecommended: 0 },
+  };
+  let saved;
+  const code = await main(
+    ["rollout", "prepare", record.upstream.pullRequest, "--audit-report", report],
+    {
+      root,
+      io: output,
+      runner: {},
+      github: { upsertRolloutComment: (_repo, _number, value) => { saved = value; } },
+      prepareRollout: () => ({ branches: { backend: "backend", ide: "ide" }, record }),
+    },
+  );
+  assert.equal(code, 0);
+  assert.equal(saved.state, "awaiting_approval");
+  assert.deepEqual(saved.audit, { status: "passed", blockers: 0, repairRecommended: 7 });
+});

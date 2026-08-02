@@ -114,7 +114,8 @@ async function continueCommand(url, args, deps) {
 }
 
 async function prepareCommand(url, args, deps) {
-  const prepared = prepareRollout({
+  const prepare = deps.prepareRollout ?? prepareRollout;
+  const prepared = prepare({
     upstreamUrl: url,
     root: deps.root,
     runner: deps.runner,
@@ -125,6 +126,20 @@ async function prepareCommand(url, args, deps) {
     },
   });
   deps.io.out(`Prepared Backend (${prepared.branches.backend}) and IDE (${prepared.branches.ide}) PRs.`);
+  const suppliedAudit = option(args, "--audit-report");
+  if (suppliedAudit) {
+    const report = JSON.parse(readFile(suppliedAudit, "utf8"));
+    const record = applyAuditReport(prepared.record, report);
+    const parsed = parsePullRequestUrl(url);
+    deps.github.upsertRolloutComment(parsed.repository, parsed.number, record);
+    deps.io.out(`Imported read-only stored-content audit: ${record.audit.blockers} blocker(s), ${record.audit.repairRecommended} repair recommendation(s).`);
+    if (record.state === "awaiting_approval") {
+      deps.io.out("Preparation is complete. Review the report, then approve once in this Agent conversation.");
+      return 0;
+    }
+    deps.io.err(`Preparation stopped in ${record.state}; production was not changed.`);
+    return 1;
+  }
   if (has(args, "--no-wait-audit")) {
     deps.io.out("Audit not dispatched; rerun prepare without --no-wait-audit to reach the approval gate.");
     return 0;
@@ -170,7 +185,7 @@ export async function main(argv = process.argv.slice(2), provided = {}) {
   const root = provided.root ?? DEFAULT_ROOT;
   const runner = provided.runner ?? createCommandRunner();
   const github = provided.github ?? createGitHubClient(runner);
-  const deps = { io, root, runner, github, actions: provided.actions };
+  const deps = { io, root, runner, github, actions: provided.actions, prepareRollout: provided.prepareRollout };
   try {
     if (argv[0] !== "rollout") throw new Error("usage: contractctl rollout <validate|prepare|status|continue>");
     const command = argv[1];
