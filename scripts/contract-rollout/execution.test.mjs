@@ -1,21 +1,31 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { executeRollout, resolveStableRingFromHealth } from "./execution.mjs";
+import { validateRolloutRecord } from "./core.mjs";
 import { applyAuditReport, bindAuditReport } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
 const MERGE = "b".repeat(40);
 const BACKEND_MERGE = "c".repeat(40);
 const IDE_MERGE = "d".repeat(40);
+const CANON_BACKEND = "e".repeat(40);
+const CANON_IDE = "f".repeat(40);
+
+function diffEvidence(headSha, files) {
+  const sorted = [...files].sort();
+  const material = JSON.stringify({ baseBranch: "main", headSha, files: sorted });
+  return { baseBranch: "main", files: sorted, digest: `sha256:${createHash("sha256").update(material).digest("hex")}` };
+}
 
 function record() {
   const pending = {
     schemaVersion: 1, state: "preparing",
     upstream: { repository: "cdotlock/lunascripts", pullRequest: "https://github.com/cdotlock/lunascripts/pull/2", headSha: SHA, treeDigest: `sha256:${"1".repeat(64)}` },
     contractVersion: "2.0.0", changeClass: "major",
-    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA },
-    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA },
+    backend: { repository: "cdotlock/lunaverse-backend", pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: SHA, diffEvidence: diffEvidence(SHA, ["contracts/lunascripts.lock.json"]) },
+    ide: { repository: "cdotlock/lunaverse-ide", pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15", headSha: SHA, diffEvidence: diffEvidence(SHA, ["vendor/lunascripts/contract/contract.json"]) },
     audit: { status: "pending", blockers: 0, repairRecommended: 0 },
   };
   const envelope = bindAuditReport(pending, { readOnly: true, blockers: 0, repairRecommended: 34 }, {
@@ -28,7 +38,19 @@ function record() {
 function successfulActions(calls) {
   return {
     mergeUpstream: async () => { calls.push("merge upstream"); return { mergeSha: MERGE }; },
-    refreshConsumerPins: async (value, sha) => { calls.push(`repin ${sha}`); return { backend: value.backend, ide: value.ide }; },
+    refreshConsumerPins: async (value, sha) => {
+      calls.push(`repin ${sha}`);
+      return {
+        backend: { ...value.backend, headSha: CANON_BACKEND, diffEvidence: diffEvidence(CANON_BACKEND, value.backend.diffEvidence.files) },
+        ide: { ...value.ide, headSha: CANON_IDE, diffEvidence: diffEvidence(CANON_IDE, value.ide.diffEvidence.files) },
+        proof: {
+          upstreamCandidateHeadSha: value.upstream.headSha,
+          approvedTreeDigest: value.upstream.treeDigest,
+          canonicalUpstreamSha: sha,
+          canonicalTreeDigest: value.upstream.treeDigest,
+        },
+      };
+    },
     waitConsumerChecks: async () => calls.push("checks"),
     deployAndVerifyUpstream: async () => { calls.push("upstream health"); return { runId: 1 }; },
     mergeBackend: async () => { calls.push("merge backend"); return { mergeSha: BACKEND_MERGE }; },
@@ -41,12 +63,24 @@ function successfulActions(calls) {
 
 test("executes the exact approved dependency order and never dispatches an IDE release", async () => {
   const calls = [];
-  const result = await executeRollout({ record: record(), confirmed: true, actions: successfulActions(calls) });
+  const persisted = [];
+  const result = await executeRollout({
+    record: record(),
+    confirmed: true,
+    actions: successfulActions(calls),
+    persist: async (value) => persisted.push(validateRolloutRecord(structuredClone(value))),
+  });
   assert.deepEqual(calls, [
     "merge upstream", `repin ${MERGE}`, "checks", "upstream health", "merge backend",
     "resolve ring", "deploy backend", "smoke", "merge ide",
   ]);
   assert.equal(result.state, "complete");
+  assert.equal(result.backend.headSha, SHA);
+  assert.equal(result.ide.headSha, SHA);
+  assert.equal(result.execution.consumerRepin.backend.headSha, CANON_BACKEND);
+  assert.equal(result.execution.consumerRepin.ide.headSha, CANON_IDE);
+  assert.equal(result.execution.consumerRepin.proof.canonicalTreeDigest, result.upstream.treeDigest);
+  assert.equal(persisted.some((value) => value.execution?.stage === "consumers_repinned"), true);
   assert.equal(calls.some((call) => call.includes("release")), false);
 });
 
@@ -76,7 +110,10 @@ test("resumes after a durable stage without repeating completed mutations", asyn
   const saved = [];
   const actions = successfulActions(calls);
   actions.waitConsumerChecks = async () => { calls.push("checks"); throw new Error("temporary CI outage"); };
-  const first = await executeRollout({ record: record(), confirmed: true, actions, persist: async (value) => saved.push(structuredClone(value)) });
+  const first = await executeRollout({
+    record: record(), confirmed: true, actions,
+    persist: async (value) => saved.push(validateRolloutRecord(structuredClone(value))),
+  });
   assert.equal(first.state, "rollout_blocked");
   const checkpoint = saved.findLast((value) => value.execution.stage === "consumers_repinned");
   checkpoint.state = "executing";
@@ -85,6 +122,8 @@ test("resumes after a durable stage without repeating completed mutations", asyn
   assert.equal(resumed.state, "complete");
   assert.equal(resumedCalls.includes("merge upstream"), false);
   assert.equal(resumedCalls.some((call) => call.startsWith("repin")), false);
+  assert.equal(resumed.execution.consumerRepin.backend.headSha, CANON_BACKEND);
+  assert.equal(resumed.backend.headSha, SHA);
 });
 
 test("stable ring resolution requires one direct healthy revision match", () => {

@@ -151,6 +151,16 @@ export function createGitHubClient(runner) {
       return client.getPullRequest(repository, number).checks;
     },
 
+    getPullRequestFiles(repository, number) {
+      const rows = json(["api", `repos/${repository}/pulls/${number}/files`, "--paginate"], "GitHub pull request files");
+      const paths = [];
+      for (const row of rows) {
+        if (typeof row.filename === "string") paths.push(row.filename);
+        if (typeof row.previous_filename === "string") paths.push(row.previous_filename);
+      }
+      return [...new Set(paths)].sort();
+    },
+
     waitPullRequestChecks(repository, number, expectedHeadSha, timeoutMs = 30 * 60_000) {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {

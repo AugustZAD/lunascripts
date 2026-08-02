@@ -10,7 +10,7 @@ import { createCommandRunner } from "./contract-rollout/command.mjs";
 import { approvalDigest, isContractImpactingPath } from "./contract-rollout/core.mjs";
 import { executeRollout } from "./contract-rollout/execution.mjs";
 import { createGitHubClient, parsePullRequestUrl } from "./contract-rollout/github.mjs";
-import { applyAuditReport, bindAuditReport, prepareRollout } from "./contract-rollout/preparation.mjs";
+import { CONSUMERS, applyAuditReport, bindAuditReport, prepareRollout, verifyConsumerPullRequest } from "./contract-rollout/preparation.mjs";
 import { createExecutionActions } from "./contract-rollout/runtime.mjs";
 
 const DEFAULT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -80,11 +80,25 @@ async function validateCommand(args, deps) {
 function loadFreshStatus(url, github) {
   const upstreamRef = parsePullRequestUrl(url);
   const record = github.readRolloutRecord(upstreamRef.repository, upstreamRef.number);
-  const refs = [record.upstream, record.backend, record.ide];
+  if (record.upstream.repository !== upstreamRef.repository || record.upstream.pullRequest !== url) {
+    throw new Error("rollout record upstream pull request does not match the command URL container");
+  }
+  const refs = [
+    record.upstream,
+    record.execution?.consumerRepin?.backend ?? record.backend,
+    record.execution?.consumerRepin?.ide ?? record.ide,
+  ];
   const pulls = refs.map((ref) => {
     const parsed = parsePullRequestUrl(ref.pullRequest);
     const pr = github.getPullRequest(parsed.repository, parsed.number);
     if (pr.headSha !== ref.headSha) throw new Error(`${parsed.repository} head changed; approval and audits are invalid`);
+    const consumer = CONSUMERS.find((value) => value.repository === ref.repository);
+    if (consumer) {
+      const evidence = verifyConsumerPullRequest({ github, consumer, pullRequest: ref.pullRequest, expectedHeadSha: ref.headSha });
+      if (JSON.stringify(evidence) !== JSON.stringify(ref.diffEvidence)) {
+        throw new Error(`${ref.repository} pull request diff evidence changed after preparation`);
+      }
+    }
     return { ref, pr };
   });
   return { record, pulls, digest: approvalDigest(record) };

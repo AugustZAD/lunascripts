@@ -60,7 +60,7 @@ test("offline three-repository prepare and approval dry-run never mutate product
     getPullRequest(repo, number) {
       if (repo === "cdotlock/lunascripts") return { headSha: upstream.sha, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", checks: [{ status: "completed", conclusion: "success" }] };
       const pr = pulls.get(`${repo}/${number}`);
-      return { ...pr, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", checks: [{ status: "completed", conclusion: "success" }] };
+      return { ...pr, state: "OPEN", isDraft: false, mergeable: "MERGEABLE", baseBranch: "main", checks: [{ status: "completed", conclusion: "success" }] };
     },
     findPullRequestByHead: () => null,
     createPullRequest(repo, value) {
@@ -69,12 +69,13 @@ test("offline three-repository prepare and approval dry-run never mutate product
       pulls.set(`${repo}/${number}`, pr);
       return pr;
     },
+    getPullRequestFiles: () => [],
     upsertRolloutComment(_repo, _number, value) { preparedRecord = value; },
   };
   const noopConsumer = (key, repo) => ({
     key, repository: repo,
     update: () => [process.execPath, ["-e", "process.stdout.write('{}')"]],
-    verify: [], owned: ["contract-fixture"],
+    verify: [], owned: ["contract-fixture"], allowed: ["contract-fixture"],
   });
   prepareRollout({
     upstreamUrl: "https://github.com/cdotlock/lunascripts/pull/2",

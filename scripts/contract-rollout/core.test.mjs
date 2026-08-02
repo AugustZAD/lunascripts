@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -12,6 +13,12 @@ import {
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
+
+function diffEvidence(headSha, files) {
+  const sorted = [...files].sort();
+  const material = JSON.stringify({ baseBranch: "main", headSha, files: sorted });
+  return { baseBranch: "main", files: sorted, digest: `sha256:${createHash("sha256").update(material).digest("hex")}` };
+}
 
 function record(overrides = {}) {
   return {
@@ -29,11 +36,13 @@ function record(overrides = {}) {
       repository: "cdotlock/lunaverse-backend",
       pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128",
       headSha: SHA_A,
+      diffEvidence: diffEvidence(SHA_A, ["contracts/lunascripts.lock.json"]),
     },
     ide: {
       repository: "cdotlock/lunaverse-ide",
       pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15",
       headSha: SHA_A,
+      diffEvidence: diffEvidence(SHA_A, ["vendor/lunascripts/contract/contract.json"]),
     },
     audit: {
       status: "passed",
@@ -104,9 +113,14 @@ test("approval digest is stable across key order but changes with material heads
       source: { ...first.audit.provenance.source, revision: SHA_B },
     },
   };
+  const changedBackend = {
+    ...first.backend,
+    headSha: SHA_B,
+    diffEvidence: diffEvidence(SHA_B, first.backend.diffEvidence.files),
+  };
   assert.notEqual(
     approvalDigest(first),
-    approvalDigest({ ...first, backend: { ...first.backend, headSha: SHA_B }, audit: changedAudit }),
+    approvalDigest({ ...first, backend: changedBackend, audit: changedAudit }),
   );
 });
 
@@ -118,6 +132,10 @@ test("validates durable rollout records", () => {
     /40-character/,
   );
   assert.throws(() => validateRolloutRecord({ ...record(), state: "surprise" }), /state/);
+  assert.throws(
+    () => validateRolloutRecord({ ...record(), backend: { ...record().backend, diffEvidence: undefined } }),
+    /diff evidence/,
+  );
   assert.throws(
     () => validateRolloutRecord({ ...record(), audit: { status: "passed", blockers: 0, repairRecommended: 0 } }),
     /bound provenance/,

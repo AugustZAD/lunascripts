@@ -99,13 +99,24 @@ function assertSha(value, label) {
   if (!SHA_RE.test(value ?? "")) throw new Error(`${label} must be a 40-character lowercase Git SHA`);
 }
 
-function assertConsumer(value, label) {
+function assertConsumer(value, label, requireDiffEvidence = false) {
   if (!value || typeof value !== "object") throw new Error(`${label} must be an object`);
   if (typeof value.repository !== "string" || !/^[^/]+\/[^/]+$/.test(value.repository)) {
     throw new Error(`${label}.repository must be owner/repository`);
   }
   if (!PR_URL_RE.test(value.pullRequest ?? "")) throw new Error(`${label}.pullRequest must be a GitHub PR URL`);
   assertSha(value.headSha, `${label}.headSha`);
+  if (requireDiffEvidence) {
+    const evidence = value.diffEvidence;
+    const files = evidence?.files;
+    if (evidence?.baseBranch !== "main" || !Array.isArray(files) || files.some((file) => typeof file !== "string") ||
+        JSON.stringify(files) !== JSON.stringify([...new Set(files)].sort())) {
+      throw new Error(`${label} diff evidence is missing or invalid`);
+    }
+    const material = JSON.stringify({ baseBranch: "main", headSha: value.headSha, files });
+    const digest = `sha256:${createHash("sha256").update(material).digest("hex")}`;
+    if (evidence.digest !== digest) throw new Error(`${label} diff evidence digest does not match its head and paths`);
+  }
 }
 
 export function validateRolloutRecord(record) {
@@ -120,8 +131,8 @@ export function validateRolloutRecord(record) {
   if (!/^sha256:[0-9a-f]{64}$/.test(record.upstream.treeDigest ?? "")) {
     throw new Error("upstream.treeDigest must be a sha256 digest");
   }
-  assertConsumer(record.backend, "backend");
-  assertConsumer(record.ide, "ide");
+  assertConsumer(record.backend, "backend", true);
+  assertConsumer(record.ide, "ide", true);
   if (!record.audit || typeof record.audit !== "object") throw new Error("audit must be an object");
   if (!new Set(["pending", "passed", "blocked", "unavailable"]).has(record.audit.status)) {
     throw new Error("audit.status is invalid");
@@ -158,6 +169,23 @@ export function validateRolloutRecord(record) {
   }
   if (record.execution?.stage && typeof record.execution.stage !== "string") {
     throw new Error("execution.stage must be a string");
+  }
+  if (record.execution?.consumerRepin) {
+    const repin = record.execution.consumerRepin;
+    assertConsumer(repin.backend, "execution.consumerRepin.backend", true);
+    assertConsumer(repin.ide, "execution.consumerRepin.ide", true);
+    for (const [key, approved] of [["backend", record.backend], ["ide", record.ide]]) {
+      if (repin[key].repository !== approved.repository || repin[key].pullRequest !== approved.pullRequest) {
+        throw new Error(`execution.consumerRepin.${key} must preserve the approved pull request identity`);
+      }
+    }
+    const proof = repin.proof;
+    if (!proof || proof.upstreamCandidateHeadSha !== record.upstream.headSha ||
+        proof.approvedTreeDigest !== record.upstream.treeDigest ||
+        proof.canonicalTreeDigest !== record.upstream.treeDigest ||
+        proof.canonicalUpstreamSha !== record.execution.upstreamMergeSha) {
+      throw new Error("execution consumer repin proof does not preserve the approved upstream tree");
+    }
   }
   return record;
 }

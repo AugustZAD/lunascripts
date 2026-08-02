@@ -30,6 +30,10 @@ function withStage(record, stage, fields = {}) {
   };
 }
 
+function consumerRef(record, key) {
+  return record.execution?.consumerRepin?.[key] ?? record[key];
+}
+
 export function resolveStableRingFromHealth(publicHealth, ringHealth) {
   const revision = publicHealth?.data?.revision;
   if (!/^[0-9a-f]{40}$/.test(revision ?? "")) throw new Error("public production health has no exact revision");
@@ -70,11 +74,12 @@ export async function executeRollout({ record: input, confirmed, actions, persis
     }
     if (!atLeast(record, "consumers_repinned")) {
       const consumers = await actions.refreshConsumerPins(record, record.execution.upstreamMergeSha);
-      record = { ...record, backend: consumers.backend, ide: consumers.ide };
-      await advance("consumers_repinned");
+      await advance("consumers_repinned", {
+        consumerRepin: { backend: consumers.backend, ide: consumers.ide, proof: consumers.proof },
+      });
     }
     if (!atLeast(record, "consumer_checks_green")) {
-      await actions.waitConsumerChecks(record.backend, record.ide);
+      await actions.waitConsumerChecks(consumerRef(record, "backend"), consumerRef(record, "ide"));
       await advance("consumer_checks_green");
     }
     if (!atLeast(record, "upstream_verified")) {
@@ -82,7 +87,7 @@ export async function executeRollout({ record: input, confirmed, actions, persis
       await advance("upstream_verified", { upstreamDeployment });
     }
     if (!atLeast(record, "backend_merged")) {
-      const merged = await actions.mergeBackend(record.backend);
+      const merged = await actions.mergeBackend(consumerRef(record, "backend"));
       await advance("backend_merged", { backendMergeSha: merged.mergeSha });
     }
     if (!atLeast(record, "stable_ring_resolved")) {
@@ -108,7 +113,7 @@ export async function executeRollout({ record: input, confirmed, actions, persis
       await advance("production_verified");
     }
     if (!atLeast(record, "ide_merged")) {
-      const merged = await actions.mergeIde(record.ide);
+      const merged = await actions.mergeIde(consumerRef(record, "ide"));
       record = { ...record, state: "complete" };
       await advance("ide_merged", { ideMergeSha: merged.mergeSha });
     }

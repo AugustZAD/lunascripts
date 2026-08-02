@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { applyAuditReport, bindAuditReport, prepareConsumerWorkspace, prepareRollout, rolloutBranch } from "./preparation.mjs";
+import { applyAuditReport, bindAuditReport, prepareConsumerWorkspace, prepareRollout, rolloutBranch, verifyConsumerPullRequest } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
 const BACKEND_SHA = "b".repeat(40);
@@ -35,6 +35,65 @@ function bootstrapEnvelope(record = preparingRecord(), report = { readOnly: true
 
 test("uses a deterministic consumer branch", () => {
   assert.equal(rolloutBranch("2.0.0", SHA), "contract-rollout/v2.0.0-aaaaaaaa");
+});
+
+test("rejects an adopted Backend PR that already contains a committed migration", () => {
+  const consumer = {
+    key: "backend",
+    repository: "cdotlock/lunaverse-backend",
+    owned: ["contracts/lunascripts"],
+    allowed: ["contracts/lunascripts", "contracts/lunascripts.lock.json"],
+  };
+  const github = {
+    getPullRequest: () => ({ state: "OPEN", baseBranch: "main", headSha: BACKEND_SHA }),
+    getPullRequestFiles: () => [
+      "contracts/lunascripts/contract.json",
+      "prisma/migrations/20260802_unreviewed/migration.sql",
+    ],
+  };
+  assert.throws(
+    () => verifyConsumerPullRequest({
+      github,
+      consumer,
+      pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128",
+      expectedHeadSha: BACKEND_SHA,
+    }),
+    /unapproved pull request paths.*prisma\/migrations/,
+  );
+});
+
+test("prepare rejects an adopted migration before touching its consumer branch", () => {
+  const root = mkdtempSync(join(tmpdir(), "rollout-adopt-migration-"));
+  mkdirSync(join(root, "contract"));
+  writeFileSync(join(root, "contract/contract.json"), JSON.stringify({ contract_version: "2.0.0", change_class: "major" }));
+  const calls = [];
+  const runner = {
+    capture(command, args) {
+      calls.push([command, ...args]);
+      if (command === "git" && args[0] === "rev-parse") return SHA;
+      throw new Error("consumer workspace must not be touched");
+    },
+  };
+  const github = {
+    getPullRequest(repository, number) {
+      if (repository === "cdotlock/lunascripts") return { headSha: SHA };
+      return { number, state: "OPEN", headBranch: "codex/lunascripts-authority", baseBranch: "main", headSha: BACKEND_SHA };
+    },
+    getPullRequestFiles: () => ["contracts/lunascripts.lock.json", "prisma/migrations/20260802_unreviewed/migration.sql"],
+  };
+  const consumer = {
+    key: "backend", repository: "cdotlock/lunaverse-backend",
+    update: () => ["node", ["update"]], verify: [], owned: ["contracts/lunascripts.lock.json"],
+    allowed: ["contracts/lunascripts.lock.json"],
+  };
+  assert.throws(
+    () => prepareRollout({
+      upstreamUrl: "https://github.com/cdotlock/lunascripts/pull/2", root, runner, github,
+      consumers: [consumer], existingPullRequests: { backend: "https://github.com/cdotlock/lunaverse-backend/pull/128" },
+    }),
+    /unapproved pull request paths.*prisma\/migrations/,
+  );
+  assert.equal(calls.some((call) => call[0] === "git" && ["clone", "push"].includes(call[1])), false);
 });
 
 test("turns a read-only clean audit into one approval gate", () => {
@@ -90,6 +149,7 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
     update: (sha) => ["node", ["update.mjs", "--ref", sha, "--json"]],
     verify: [["node", ["--test", "authority.test.mjs"]]],
     owned: ["contracts/lunascripts", "contracts/lunascripts.lock.json"],
+    allowed: ["contracts/lunascripts", "contracts/lunascripts.lock.json"],
   };
   const runner = {
     capture(command, args) {
@@ -104,6 +164,8 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
   const github = {
     findPullRequestByHead: () => ({ number: 128 }),
     updatePullRequest: (_repo, number, value) => ({ number, url: "https://github.com/cdotlock/lunaverse-backend/pull/128", headSha: value.expectedHeadSha }),
+    getPullRequest: () => ({ baseBranch: "main", headSha: SHA }),
+    getPullRequestFiles: () => ["contracts/lunascripts/contract.json", "contracts/lunascripts.lock.json"],
     createPullRequest: () => { created = true; },
   };
   const result = prepareConsumerWorkspace({
@@ -112,6 +174,8 @@ test("updates a deterministic existing consumer PR through its exact-ref adapter
   });
   assert.equal(result.headSha, SHA);
   assert.equal(created, false);
+  assert.equal(result.diffEvidence.baseBranch, "main");
+  assert.deepEqual(result.diffEvidence.files, ["contracts/lunascripts.lock.json", "contracts/lunascripts/contract.json"]);
   assert.equal(calls.some((call) => call.join(" ").includes(`update.mjs --ref ${SHA}`)), true);
   assert.equal(calls.some((call) => call[0] === "railway" || call.includes("merge")), false);
 });
@@ -163,15 +227,16 @@ test("adopts explicit pre-controller consumer PRs instead of creating duplicates
   const github = {
     getPullRequest(repo, number) {
       if (repo === "cdotlock/lunascripts") return { headSha: SHA };
-      return { number, state: "OPEN", isDraft: true, headBranch: "codex/legacy-authority", headSha: SHA };
+      return { number, state: "OPEN", isDraft: true, headBranch: "codex/legacy-authority", baseBranch: "main", headSha: SHA };
     },
     findPullRequestByHead: () => { throw new Error("adopted PR must not be rediscovered by deterministic branch"); },
     updatePullRequest(repo, number, value) { return { number, url: `https://github.com/${repo}/pull/${number}`, headSha: value.expectedHeadSha }; },
     markPullRequestReady() { markedReady++; },
+    getPullRequestFiles: () => [],
     createPullRequest: () => { creates++; },
     upsertRolloutComment: () => {},
   };
-  const consumer = (key, repository) => ({ key, repository, update: () => ["node", ["update"]], verify: [], owned: [] });
+  const consumer = (key, repository) => ({ key, repository, update: () => ["node", ["update"]], verify: [], owned: [], allowed: [] });
   const result = prepareRollout({
     upstreamUrl: "https://github.com/cdotlock/lunascripts/pull/2", root, runner, github,
     consumers: [consumer("backend", "cdotlock/lunaverse-backend"), consumer("ide", "cdotlock/lunaverse-ide")],

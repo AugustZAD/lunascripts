@@ -13,6 +13,12 @@ import { applyAuditReport, bindAuditReport } from "./preparation.mjs";
 
 const SHA = "a".repeat(40);
 
+function diffEvidence(headSha, files) {
+  const sorted = [...files].sort();
+  const material = JSON.stringify({ baseBranch: "main", headSha, files: sorted });
+  return { baseBranch: "main", files: sorted, digest: `sha256:${createHash("sha256").update(material).digest("hex")}` };
+}
+
 function fakeRunner(responses = []) {
   const calls = [];
   return {
@@ -47,11 +53,13 @@ const record = {
     repository: "cdotlock/lunaverse-backend",
     pullRequest: "https://github.com/cdotlock/lunaverse-backend/pull/128",
     headSha: SHA,
+    diffEvidence: diffEvidence(SHA, ["contracts/lunascripts.lock.json"]),
   },
   ide: {
     repository: "cdotlock/lunaverse-ide",
     pullRequest: "https://github.com/cdotlock/lunaverse-ide/pull/15",
     headSha: SHA,
+    diffEvidence: diffEvidence(SHA, ["vendor/lunascripts/contract/contract.json"]),
   },
   audit: { status: "pending", blockers: 0, repairRecommended: 0 },
 };
@@ -182,4 +190,18 @@ test("marks an adopted draft ready without changing its expected head", () => {
   const github = createGitHubClient(runner);
   github.markPullRequestReady("cdotlock/lunaverse-backend", 128, SHA);
   assert.deepEqual(runner.calls[1].args, ["pr", "ready", "128", "--repo", "cdotlock/lunaverse-backend"]);
+});
+
+test("reads the complete pull request path set including rename sources", () => {
+  const runner = fakeRunner([[
+    { filename: "contracts/lunascripts/contract.json", status: "modified" },
+    { filename: "contracts/lunascripts/new.json", previous_filename: "prisma/migrations/old.sql", status: "renamed" },
+  ]]);
+  const github = createGitHubClient(runner);
+  assert.deepEqual(github.getPullRequestFiles("cdotlock/lunaverse-backend", 128), [
+    "contracts/lunascripts/contract.json",
+    "contracts/lunascripts/new.json",
+    "prisma/migrations/old.sql",
+  ]);
+  assert.deepEqual(runner.calls[0].args, ["api", "repos/cdotlock/lunaverse-backend/pulls/128/files", "--paginate"]);
 });

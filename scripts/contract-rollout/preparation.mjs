@@ -18,6 +18,30 @@ export const CONSUMERS = Object.freeze([
       ["pnpm", ["vitest", "run", "scripts/lunascripts-contract-audit.test.ts", "scripts/check-lunascripts-authority.test.ts", "__tests__/core/schema-signal-int.test.ts"]],
     ],
     owned: ["contracts/lunascripts", "contracts/lunascripts.lock.json"],
+    allowed: [
+      ".github/workflows/lunascripts-authority.yml",
+      ".github/workflows/lunascripts-contract-audit.yml",
+      ".github/workflows/railway-shared-persistence-env-deploy.yml",
+      "CLAUDE.md",
+      "__tests__/core/schema-signal-int.test.ts",
+      "app/core/lunascripts-contract.ts",
+      "app/core/schema.ts",
+      "app/core/types.ts",
+      "app/services/release-content-health-policy.ts",
+      "app/services/release-content-health-service.test.ts",
+      "app/services/release-content-health-service.ts",
+      "contracts/lunascripts",
+      "contracts/lunascripts.lock.json",
+      "package.json",
+      "scripts/check-lunascripts-authority.mjs",
+      "scripts/check-lunascripts-authority.test.ts",
+      "scripts/lunascripts-contract-audit-lib.ts",
+      "scripts/lunascripts-contract-audit.test.ts",
+      "scripts/lunascripts-contract-audit.ts",
+      "scripts/lunascripts-rollout-workflow.test.ts",
+      "scripts/update-lunascripts-contract.mjs",
+      "scripts/update-lunascripts-contract.test.mjs",
+    ],
   },
   {
     key: "ide",
@@ -32,6 +56,23 @@ export const CONSUMERS = Object.freeze([
       "vendor/README.md",
       "agents/adaptation/skills/episode-writer/ls-spec.md",
       "agents/_shared/knowledge/LS-SPEC.md",
+    ],
+    allowed: [
+      ".github/workflows/lunascripts-authority.yml",
+      "AGENTS.md",
+      "agents/_shared/knowledge/LS-SPEC.md",
+      "agents/adaptation/skills/entity-planner/SKILL.md",
+      "agents/adaptation/skills/episode-writer/ls-spec.md",
+      "agents/adaptation/skills/planner-reviewer/SKILL.md",
+      "docs/superpowers/plans/2026-08-01-lunascripts-contract-authority.md",
+      "package.json",
+      "scripts/check-lunascripts-authority.mjs",
+      "scripts/update-vendor.mjs",
+      "test/agent-guidance-contract.test.mjs",
+      "test/lunascripts-authority.test.mjs",
+      "test/update-vendor.test.mjs",
+      "vendor/README.md",
+      "vendor/lunascripts",
     ],
   },
 ]);
@@ -134,6 +175,24 @@ function isOwned(path, owned) {
   return owned.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
+export function verifyConsumerPullRequest({ github, consumer, pullRequest, expectedHeadSha }) {
+  const parsed = parsePullRequestUrl(pullRequest);
+  if (parsed.repository !== consumer.repository) throw new Error(`consumer PR must belong to ${consumer.repository}`);
+  const pr = github.getPullRequest(parsed.repository, parsed.number);
+  if (pr.baseBranch !== "main") throw new Error(`${consumer.repository} pull request base must be main`);
+  if (pr.headSha !== expectedHeadSha) throw new Error(`${consumer.repository} pull request head changed during diff verification`);
+  const files = [...new Set(github.getPullRequestFiles(parsed.repository, parsed.number))].sort();
+  const allowed = consumer.allowed ?? consumer.owned;
+  const unexpected = files.filter((file) => !isOwned(file, allowed));
+  if (unexpected.length) throw new Error(`${consumer.repository} has unapproved pull request paths: ${unexpected.join(", ")}`);
+  const material = JSON.stringify({ baseBranch: pr.baseBranch, headSha: pr.headSha, files });
+  return {
+    baseBranch: pr.baseBranch,
+    files,
+    digest: `sha256:${createHash("sha256").update(material).digest("hex")}`,
+  };
+}
+
 function handoff(error, upstreamUrl) {
   const message = error instanceof Error ? error.message : String(error);
   const sanitized = message.replace(/(?:ghp|github_pat)_[A-Za-z0-9_]+/g, "[REDACTED]");
@@ -179,7 +238,8 @@ export function prepareConsumerWorkspace({ runner, github, consumer, branch, ups
     ? github.updatePullRequest(consumer.repository, existing.number, { title: `chore(ls): consume contract ${contractVersion}`, body, expectedHeadSha: headSha })
     : github.createPullRequest(consumer.repository, { branch, base: "main", title: `chore(ls): consume contract ${contractVersion}`, body, expectedHeadSha: headSha });
   if (existing?.isDraft) github.markPullRequestReady(consumer.repository, existing.number, headSha);
-  return { repository: consumer.repository, pullRequest: pr.url, headSha: pr.headSha };
+  const diffEvidence = verifyConsumerPullRequest({ github, consumer, pullRequest: pr.url, expectedHeadSha: pr.headSha });
+  return { repository: consumer.repository, pullRequest: pr.url, headSha: pr.headSha, diffEvidence };
 }
 
 export function prepareRollout({ upstreamUrl, root, runner, github, consumers = CONSUMERS, keepWorkspaces = false, existingPullRequests = {} }) {
@@ -200,6 +260,12 @@ export function prepareRollout({ upstreamUrl, root, runner, github, consumers = 
         if (adopted.repository !== consumer.repository) throw new Error(`${consumer.key} PR must belong to ${consumer.repository}`);
         existingPullRequest = github.getPullRequest(adopted.repository, adopted.number);
         if (existingPullRequest.state !== "OPEN" || !existingPullRequest.headBranch) throw new Error(`${consumer.key} PR must be open with a readable head branch`);
+        verifyConsumerPullRequest({
+          github,
+          consumer,
+          pullRequest: existingPullRequests[consumer.key],
+          expectedHeadSha: existingPullRequest.headSha,
+        });
         existingPullRequest = { ...existingPullRequest, number: adopted.number };
       }
       const branch = existingPullRequest?.headBranch ?? defaultBranch;

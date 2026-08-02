@@ -22,6 +22,18 @@ function waitDispatched(github, repository, workflow, expectedHeadSha, started) 
   return github.waitForWorkflowRun(repository, workflow, { expectedHeadSha, createdAfter: started });
 }
 
+export function createCanonicalRepinProof(record, canonicalSha, canonicalTreeDigest) {
+  if (canonicalTreeDigest !== record.upstream.treeDigest) {
+    throw new Error("canonical upstream tree does not match the approved tree digest");
+  }
+  return {
+    upstreamCandidateHeadSha: record.upstream.headSha,
+    approvedTreeDigest: record.upstream.treeDigest,
+    canonicalUpstreamSha: canonicalSha,
+    canonicalTreeDigest,
+  };
+}
+
 export function createExecutionActions({ github, runner, fetchFn = fetch }) {
   return {
     async mergeUpstream(ref) {
@@ -31,9 +43,7 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
 
     async refreshConsumerPins(record, canonicalSha) {
       if (github.getBranchSha(UPSTREAM_REPO, "main") !== canonicalSha) throw new Error("upstream canonical main does not match its merge result");
-      if (github.getTreeDigest(UPSTREAM_REPO, canonicalSha) !== record.upstream.treeDigest) {
-        throw new Error("canonical upstream tree does not match the approved tree digest");
-      }
+      const proof = createCanonicalRepinProof(record, canonicalSha, github.getTreeDigest(UPSTREAM_REPO, canonicalSha));
       const baseDir = mkdtempSync(join(tmpdir(), "lunascripts-canonical-repin-"));
       try {
         const result = {};
@@ -48,7 +58,7 @@ export function createExecutionActions({ github, runner, fetchFn = fetch }) {
           if (parsePullRequestUrl(updated.pullRequest).number !== current.number) throw new Error(`${consumer.repository} canonical refresh created a different PR`);
           result[consumer.key] = updated;
         }
-        return result;
+        return { ...result, proof };
       } finally {
         rmSync(baseDir, { recursive: true, force: true });
       }
