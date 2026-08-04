@@ -7,7 +7,7 @@ import { createCommandRunner } from "./contract-rollout/command.mjs";
 import { compareSemverClass, isContractImpactingPath, validatePreparationReport } from "./contract-rollout/core.mjs";
 import { createGitHubClient, parsePullRequestUrl } from "./contract-rollout/github.mjs";
 import { prepareConsumers, syncConsumers } from "./contract-rollout/preparation.mjs";
-import { validateContractArtifacts } from "./contract-artifacts.mjs";
+import { classifyContractSemantics, validateContractArtifacts } from "./contract-artifacts.mjs";
 
 const DEFAULT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -48,10 +48,13 @@ function validateCommand(args, deps) {
   if (!changelog.includes(`## ${manifest.contract_version}`)) throw new Error("CHANGELOG has no matching contract version");
 
   const previous = JSON.parse(deps.runner.capture("git", ["show", `${base}:contract/contract.json`], { cwd: deps.root }));
-  const lowerBound = compareSemverClass(previous.contract_version, manifest.contract_version);
+  const versionLowerBound = compareSemverClass(previous.contract_version, manifest.contract_version);
+  const semantic = deps.semanticClassifier({ root: deps.root, base, manifest, runner: deps.runner });
   const rank = { patch: 0, minor: 1, major: 2 };
+  const lowerBound = rank[semantic.lowerBound] > rank[versionLowerBound] ? semantic.lowerBound : versionLowerBound;
   if (rank[manifest.change_class] < rank[lowerBound]) {
-    throw new Error(`declared change class ${manifest.change_class} is below classifier lower bound ${lowerBound}`);
+    const detail = semantic.reasons.length ? `: ${semantic.reasons.slice(0, 3).join("; ")}` : "";
+    throw new Error(`declared change class ${manifest.change_class} is below classifier lower bound ${lowerBound}${detail}`);
   }
   deps.artifactValidator({ root: deps.root, manifest, runner: deps.runner });
   deps.io.out(`${impacting.length} contract-impacting file(s); ${manifest.contract_version} (${manifest.change_class}).`);
@@ -90,6 +93,7 @@ export async function main(argv = process.argv.slice(2), provided = {}) {
     io: provided.io ?? defaultIo(), root: provided.root ?? DEFAULT_ROOT,
     runner: provided.runner ?? createCommandRunner(),
     artifactValidator: provided.artifactValidator ?? validateContractArtifacts,
+    semanticClassifier: provided.semanticClassifier ?? classifyContractSemantics,
   };
   deps.github = provided.github ?? createGitHubClient(deps.runner);
   try {

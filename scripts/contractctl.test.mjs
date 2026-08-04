@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { main } from "./contractctl.mjs";
+import { validateJsonAgainstSchema } from "./contract-artifacts.mjs";
 import { createCommandRunner } from "./contract-rollout/command.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -24,7 +25,22 @@ function validationRunner(root, baseManifest = { contract_version: "2.0.0" }) {
   return {
     capture(command, args, options = {}) {
       if (command === "git" && args[0] === "diff") return "contract/contract.json";
-      if (command === "git" && args[0] === "show") return JSON.stringify(baseManifest);
+      if (command === "git" && args[0] === "ls-tree") {
+        return readdirSync(join(ROOT, "contract/fixtures/valid"))
+          .filter((name) => name.endsWith(".ls"))
+          .map((name) => `contract/fixtures/valid/${name}`)
+          .join("\n");
+      }
+      if (command === "git" && args[0] === "show") {
+        const path = String(args[1]).split(":").slice(1).join(":");
+        if (path === "contract/contract.json") return JSON.stringify(baseManifest);
+        if (path === "contract/episode.schema.json") {
+          const schema = JSON.parse(readFileSync(join(ROOT, path), "utf8"));
+          schema.properties.ls_contract_version.const = baseManifest.contract_version;
+          return JSON.stringify(schema);
+        }
+        return readFileSync(join(ROOT, path), "utf8");
+      }
       return real.capture(command, args, { ...options, cwd: options.cwd ?? root });
     },
   };
@@ -106,7 +122,7 @@ test("rollout validation rejects a valid fixture whose committed JSON is stale",
   assert.match(sink.err.join("\n"), /fixture|stale|byte/i);
 });
 
-test("rollout validation checks compiled valid fixtures against the current schema", async (t) => {
+test("rollout validation rejects minor when the Episode schema tightens", async (t) => {
   const root = releaseRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const schemaPath = join(root, "contract/episode.schema.json");
@@ -115,9 +131,49 @@ test("rollout validation checks compiled valid fixtures against the current sche
   writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`);
   const sink = io();
   assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
-    root, io: sink.value, runner: validationRunner(root),
+    root, io: sink.value, runner: validationRunner(root), artifactValidator: () => {},
   }), 1);
-  assert.match(sink.err.join("\n"), /schema|string is too short/i);
+  assert.match(sink.err.join("\n"), /change class minor.*major|classifier.*major/i);
+});
+
+test("rollout validation rejects minor when a base valid fixture fails under the HEAD compiler", async (t) => {
+  const root = releaseRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const normal = validationRunner(root);
+  const runner = {
+    capture(command, args, options = {}) {
+      if (command === "go" && args.includes("compile") && String(options.stage ?? "").includes("base fixture")) {
+        throw new Error("HEAD compiler rejected previously valid source");
+      }
+      return normal.capture(command, args, options);
+    },
+  };
+  const sink = io();
+  assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
+    root, io: sink.value, runner, artifactValidator: () => {},
+  }), 1);
+  assert.match(sink.err.join("\n"), /change class minor.*major|classifier.*major/i);
+});
+
+test("schema validation fails closed on unsupported validation keywords", () => {
+  assert.throws(
+    () => validateJsonAgainstSchema("value", { type: "string", unknownConstraint: true }),
+    /unsupported JSON Schema keyword unknownConstraint/i,
+  );
+});
+
+test("rollout validation requires every current invalid fixture to stay invalid", async (t) => {
+  const root = releaseRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "contract/fixtures/invalid/lowercase-mark-signal.ls"), `@episode main:01 "Now valid" {
+@signal mark NOW_VALID
+@gate { @end complete }
+}`);
+  const sink = io();
+  assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
+    root, io: sink.value, runner: validationRunner(root), artifactValidator: () => {},
+  }), 1);
+  assert.match(sink.err.join("\n"), /invalid fixture lowercase-mark-signal\.ls unexpectedly validates/i);
 });
 
 test("rollout validation rejects a declared change class below the version classifier", async (t) => {
