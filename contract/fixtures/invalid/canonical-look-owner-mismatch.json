@@ -1,0 +1,20 @@
+{
+  "branch_key": "main",
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
+  "gate": null,
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "character": "alice",
+      "id": "0001_char",
+      "look": "bob__casual__neutral_calm",
+      "type": "char_show",
+      "url": ""
+    }
+  ],
+  "title": "Canonical look owner mismatch"
+}

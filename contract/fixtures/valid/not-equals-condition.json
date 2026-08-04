@@ -1,0 +1,36 @@
+{
+  "branch_key": "main",
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
+  "gate": null,
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "condition": {
+        "left": {
+          "char": "knox",
+          "kind": "affection"
+        },
+        "op": "!=",
+        "right": {
+          "kind": "literal",
+          "value": 3
+        },
+        "type": "comparison"
+      },
+      "id": "0001_ctrl",
+      "then": [
+        {
+          "id": "0002_you",
+          "text": "The comparison remains legal.",
+          "type": "you"
+        }
+      ],
+      "type": "if"
+    }
+  ],
+  "title": "Not equals condition"
+}

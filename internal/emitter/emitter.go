@@ -12,7 +12,7 @@ import (
 
 // ContractVersion identifies the LS source/JSON contract emitted by this
 // compiler. Consumers must negotiate this version before activating content.
-const ContractVersion = "2.0.0"
+const ContractVersion = "2.1.0"
 
 // AssetResolver maps semantic asset names to full URLs.
 type AssetResolver interface {

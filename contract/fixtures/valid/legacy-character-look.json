@@ -1,0 +1,33 @@
+{
+  "branch_key": "main",
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
+  "gate": null,
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "character": "alice",
+      "id": "0001_char",
+      "look": "smile",
+      "type": "char_show",
+      "url": ""
+    },
+    {
+      "character": "alice",
+      "id": "0002_char",
+      "look": "worried",
+      "type": "char_show",
+      "url": ""
+    },
+    {
+      "character": "alice",
+      "id": "0003_dlg",
+      "text": "I remember the old key.",
+      "type": "dialogue"
+    }
+  ],
+  "title": "Legacy character look"
+}

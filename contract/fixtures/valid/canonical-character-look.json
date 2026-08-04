@@ -1,0 +1,33 @@
+{
+  "branch_key": "main",
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
+  "gate": null,
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "character": "alice",
+      "id": "0001_char",
+      "look": "alice__casual__neutral_calm",
+      "type": "char_show",
+      "url": ""
+    },
+    {
+      "character": "alice",
+      "id": "0002_char",
+      "look": "alice__casual__warm_smile-arms_folded",
+      "type": "char_show",
+      "url": ""
+    },
+    {
+      "character": "alice",
+      "id": "0003_dlg",
+      "text": "I am still here.",
+      "type": "dialogue"
+    }
+  ],
+  "title": "Canonical character look"
+}
