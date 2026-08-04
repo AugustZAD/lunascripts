@@ -4,9 +4,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { createCommandRunner } from "./contract-rollout/command.mjs";
-import { isContractImpactingPath, validatePreparationReport } from "./contract-rollout/core.mjs";
+import { compareSemverClass, isContractImpactingPath, validatePreparationReport } from "./contract-rollout/core.mjs";
 import { createGitHubClient, parsePullRequestUrl } from "./contract-rollout/github.mjs";
 import { prepareConsumers, syncConsumers } from "./contract-rollout/preparation.mjs";
+import { validateContractArtifacts } from "./contract-artifacts.mjs";
 
 const DEFAULT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -33,7 +34,7 @@ function printHelp(io) {
   ].join("\n"));
 }
 
-async function validateCommand(args, deps) {
+function validateCommand(args, deps) {
   const base = option(args, "--base");
   const head = option(args, "--head");
   if (!base || !head) throw new Error("validate requires --base <sha> and --head <sha>");
@@ -45,6 +46,14 @@ async function validateCommand(args, deps) {
   if (manifest.rollout?.stored_content_policy !== "audit_only") throw new Error("stored content policy must be audit_only");
   const changelog = readFileSync(join(deps.root, "CHANGELOG.md"), "utf8");
   if (!changelog.includes(`## ${manifest.contract_version}`)) throw new Error("CHANGELOG has no matching contract version");
+
+  const previous = JSON.parse(deps.runner.capture("git", ["show", `${base}:contract/contract.json`], { cwd: deps.root }));
+  const lowerBound = compareSemverClass(previous.contract_version, manifest.contract_version);
+  const rank = { patch: 0, minor: 1, major: 2 };
+  if (rank[manifest.change_class] < rank[lowerBound]) {
+    throw new Error(`declared change class ${manifest.change_class} is below classifier lower bound ${lowerBound}`);
+  }
+  deps.artifactValidator({ root: deps.root, manifest, runner: deps.runner });
   deps.io.out(`${impacting.length} contract-impacting file(s); ${manifest.contract_version} (${manifest.change_class}).`);
   return 0;
 }
@@ -80,6 +89,7 @@ export async function main(argv = process.argv.slice(2), provided = {}) {
   const deps = {
     io: provided.io ?? defaultIo(), root: provided.root ?? DEFAULT_ROOT,
     runner: provided.runner ?? createCommandRunner(),
+    artifactValidator: provided.artifactValidator ?? validateContractArtifacts,
   };
   deps.github = provided.github ?? createGitHubClient(deps.runner);
   try {

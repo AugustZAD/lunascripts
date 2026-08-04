@@ -1,7 +1,34 @@
 import assert from "node:assert/strict";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { main } from "./contractctl.mjs";
+import { createCommandRunner } from "./contract-rollout/command.mjs";
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+function releaseRoot() {
+  const root = mkdtempSync(join(tmpdir(), "lunascripts-contractctl-"));
+  for (const path of ["cmd", "contract", "docs", "internal"]) {
+    cpSync(join(ROOT, path), join(root, path), { recursive: true });
+  }
+  for (const path of ["CHANGELOG.md", "go.mod"]) cpSync(join(ROOT, path), join(root, path));
+  return root;
+}
+
+function validationRunner(root, baseManifest = { contract_version: "2.0.0" }) {
+  const real = createCommandRunner();
+  return {
+    capture(command, args, options = {}) {
+      if (command === "git" && args[0] === "diff") return "contract/contract.json";
+      if (command === "git" && args[0] === "show") return JSON.stringify(baseManifest);
+      return real.capture(command, args, { ...options, cwd: options.cwd ?? root });
+    },
+  };
+}
 
 function io() {
   const out = [];
@@ -49,4 +76,56 @@ test("status rejects a report whose adopted branch no longer matches the exact P
   };
   assert.equal(await main(["rollout", "status", "https://github.com/cdotlock/lunascripts/pull/2", "--json"], { io: sink.value, runner: {}, github }), 1);
   assert.match(sink.err[0], /branch|identity/i);
+});
+
+test("rollout validation rejects a contract/schema version mismatch", async () => {
+  const root = releaseRoot();
+  const schemaPath = join(root, "contract/episode.schema.json");
+  const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+  schema.properties.ls_contract_version.const = "2.0.0";
+  writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`);
+  const sink = io();
+  assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
+    root, io: sink.value, runner: validationRunner(root),
+  }), 1);
+  assert.match(sink.err.join("\n"), /schema|version/i);
+});
+
+test("rollout validation rejects a valid fixture whose committed JSON is stale", async () => {
+  const root = releaseRoot();
+  const fixturePath = join(root, "contract/fixtures/valid/legacy-character-look.json");
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
+  fixture.title = "stale committed output";
+  writeFileSync(fixturePath, JSON.stringify(fixture, null, 2));
+  const sink = io();
+  assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
+    root, io: sink.value, runner: validationRunner(root),
+  }), 1);
+  assert.match(sink.err.join("\n"), /fixture|stale|byte/i);
+});
+
+test("rollout validation checks compiled valid fixtures against the current schema", async () => {
+  const root = releaseRoot();
+  const schemaPath = join(root, "contract/episode.schema.json");
+  const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+  schema.properties.title.minLength = 999;
+  writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`);
+  const sink = io();
+  assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
+    root, io: sink.value, runner: validationRunner(root),
+  }), 1);
+  assert.match(sink.err.join("\n"), /schema|string is too short/i);
+});
+
+test("rollout validation rejects a declared change class below the version classifier", async () => {
+  const root = releaseRoot();
+  const manifestPath = join(root, "contract/contract.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.change_class = "patch";
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const sink = io();
+  assert.equal(await main(["rollout", "validate", "--base", "base", "--head", "head"], {
+    root, io: sink.value, runner: validationRunner(root), artifactValidator: () => {},
+  }), 1);
+  assert.match(sink.err.join("\n"), /change class|minor|classifier/i);
 });
