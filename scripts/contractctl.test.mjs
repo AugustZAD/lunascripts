@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -78,8 +78,9 @@ test("status rejects a report whose adopted branch no longer matches the exact P
   assert.match(sink.err[0], /branch|identity/i);
 });
 
-test("rollout validation rejects a contract/schema version mismatch", async () => {
+test("rollout validation rejects a contract/schema version mismatch", async (t) => {
   const root = releaseRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const schemaPath = join(root, "contract/episode.schema.json");
   const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
   schema.properties.ls_contract_version.const = "2.0.0";
@@ -91,8 +92,9 @@ test("rollout validation rejects a contract/schema version mismatch", async () =
   assert.match(sink.err.join("\n"), /schema|version/i);
 });
 
-test("rollout validation rejects a valid fixture whose committed JSON is stale", async () => {
+test("rollout validation rejects a valid fixture whose committed JSON is stale", async (t) => {
   const root = releaseRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const fixturePath = join(root, "contract/fixtures/valid/legacy-character-look.json");
   const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
   fixture.title = "stale committed output";
@@ -104,8 +106,9 @@ test("rollout validation rejects a valid fixture whose committed JSON is stale",
   assert.match(sink.err.join("\n"), /fixture|stale|byte/i);
 });
 
-test("rollout validation checks compiled valid fixtures against the current schema", async () => {
+test("rollout validation checks compiled valid fixtures against the current schema", async (t) => {
   const root = releaseRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const schemaPath = join(root, "contract/episode.schema.json");
   const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
   schema.properties.title.minLength = 999;
@@ -117,8 +120,9 @@ test("rollout validation checks compiled valid fixtures against the current sche
   assert.match(sink.err.join("\n"), /schema|string is too short/i);
 });
 
-test("rollout validation rejects a declared change class below the version classifier", async () => {
+test("rollout validation rejects a declared change class below the version classifier", async (t) => {
   const root = releaseRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const manifestPath = join(root, "contract/contract.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   manifest.change_class = "patch";
