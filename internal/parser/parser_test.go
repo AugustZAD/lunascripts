@@ -841,6 +841,43 @@ func TestParsePhoneRejectsNonTextChild(t *testing.T) {
 // Conditions — operands, comparisons, compound, choice, flag, check
 // =============================================================================
 
+func TestParseConditionRejectsUnaryNegationAnywhere(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{"leading", `@episode main:01 "Unary negation" {
+			@if (!CALLED_DEAN) { YOU: No. }
+			@gate { @end complete }
+		}`},
+		{"compound", `@episode main:01 "Unary negation" {
+			@if (SLOW_ROUTE && !BE_DROPPED) { YOU: No. }
+			@gate { @end complete }
+		}`},
+		{"else-if", `@episode main:01 "Unary negation" {
+			@if (READY) { YOU: Yes. } @else @if (!HEROIC_END) { YOU: No. }
+			@gate { @end complete }
+		}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseSource(tc.src); err == nil {
+				t.Fatalf("expected unary negation parse error for %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestParseConditionKeepsNotEquals(t *testing.T) {
+	src := `@episode main:01 "Not equals" {
+		@if (affection.knox != 3) {
+			YOU: Legal.
+		}
+		@gate { @end complete }
+	}`
+	parseOrFail(t, src)
+}
+
 // TestParseConditionFlag covers @if (BARE_IDENT) → FlagCondition.
 func TestParseConditionFlag(t *testing.T) {
 	src := `@episode main:01 "T" {

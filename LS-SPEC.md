@@ -217,6 +217,17 @@ gate 块内的条件出口规则。括号 `()` 必需。条件类型见 §4.8。
 - `pose`：立绘名，对应素材语义名 `{char}_{pose}`
 - `transition`：可选过渡。不写 = 瞬切。常用值：`dissolve`（0.3s 交叉溶解）、`fade`（淡入）
 
+The `look` operand is emitted unchanged as the Episode JSON asset key. Legacy
+projects may continue to use an opaque identifier such as `smile`; parsers,
+compilers, and runtimes MUST continue accepting that form.
+
+New production content uses the canonical asset identity
+`<char>__<outfit>__<demeanor>[-<action>]`. When a look has exactly three
+`__`-separated fields, its leading `<char>` field MUST equal the staged
+character identifier. This applies equally to `@<char> <look>` and dialogue
+sugar `CHAR [<look>]:`. The compiler does not own the demeanor/action
+vocabulary; producer tooling validates that external asset contract.
+
 **首次出现的角色**自动入场，后续相同角色再次出现则切 pose。**位置固定**（MC 左、其余右），不可指定。
 
 引擎记忆每个角色最后一次的 pose——再次说话时默认沿用，作者用糖 `CHAR [pose]: text` 显式覆盖。
@@ -316,6 +327,10 @@ CHARACTER [pose]: text
 @character pose
 CHARACTER: text
 ```
+
+`CHARACTER [pose]:` 的 `pose` 与角色指令中的 `look` 是同一个不改写的素材键，
+因此同样遵守上述两层兼容规则：存量 opaque ID 保持可用；恰好三段的
+canonical ID 必须与说话角色的 ID 一致。
 
 例：
 
@@ -785,6 +800,8 @@ seiya 的 track 可以在任意位置用条件查询门控：
 数值比较。**左右两侧均可为任意 operand**——支持变量与变量比较、变量与字面量比较、聚合函数与任意值比较。
 
 **操作符：** `>=` `<=` `>` `<` `==` `!=`
+
+- 条件表达式不支持一元否定 `!`。需要否定布尔条件时交换 `@if` 与 `@else` 分支；比较运算符 `!=` 仍然合法。
 
 **Operand AST 共 5 种 `kind`**，分 4 类：
 
