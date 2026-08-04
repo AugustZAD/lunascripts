@@ -6,6 +6,7 @@ import (
 
 	"github.com/cdotlock/lunascripts/internal/ast"
 	"github.com/cdotlock/lunascripts/internal/lexer"
+	"github.com/cdotlock/lunascripts/internal/validator"
 )
 
 // helper parses src and returns the Episode or fails the test.
@@ -876,6 +877,73 @@ func TestParseConditionKeepsNotEquals(t *testing.T) {
 		@gate { @end complete }
 	}`
 	parseOrFail(t, src)
+}
+
+func TestParsedCharacterLookSugarValidatesCanonicalOwner(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		wantLook string
+		wantCode string
+	}{
+		{
+			name:     "directive canonical match",
+			body:     "@alice alice__casual__neutral_calm",
+			wantLook: "alice__casual__neutral_calm",
+		},
+		{
+			name:     "directive owner mismatch",
+			body:     "@alice bob__casual__neutral_calm",
+			wantLook: "bob__casual__neutral_calm",
+			wantCode: validator.CanonicalLookOwnerMismatch,
+		},
+		{
+			name:     "dialogue canonical match",
+			body:     "ALICE [alice__casual__warm_smile-arms_folded]: Still here.",
+			wantLook: "alice__casual__warm_smile-arms_folded",
+		},
+		{
+			name:     "dialogue owner mismatch",
+			body:     "ALICE [bob__casual__neutral_calm]: Wrong owner.",
+			wantLook: "bob__casual__neutral_calm",
+			wantCode: validator.CanonicalLookOwnerMismatch,
+		},
+		{
+			name:     "dialogue legacy look remains valid",
+			body:     "ALICE [worried]: The old key still works.",
+			wantLook: "worried",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `@episode main:01 "Character look sugar" {
+` + tt.body + `
+@gate { @end complete }
+}`
+			ep := parseOrFail(t, src)
+			show, ok := ep.Body[0].(*ast.CharShowNode)
+			if !ok {
+				t.Fatalf("first parsed node = %T, want *ast.CharShowNode", ep.Body[0])
+			}
+			if show.Char != "alice" || show.Look != tt.wantLook {
+				t.Fatalf("parsed character look = %q/%q, want alice/%q", show.Char, show.Look, tt.wantLook)
+			}
+			errs := validator.Validate(ep)
+			if tt.wantCode == "" {
+				if len(errs) != 0 {
+					t.Fatalf("unexpected validation errors: %#v", errs)
+				}
+				return
+			}
+			for _, err := range errs {
+				if err.Code == tt.wantCode {
+					return
+				}
+			}
+			t.Fatalf("validation errors %#v do not contain %s", errs, tt.wantCode)
+		})
+	}
 }
 
 // TestParseConditionFlag covers @if (BARE_IDENT) → FlagCondition.
