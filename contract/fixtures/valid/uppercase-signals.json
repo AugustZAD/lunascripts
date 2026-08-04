@@ -1,13 +1,83 @@
 {
-  "ls_contract_version": "2.0.0",
-  "episode_id": "main:01",
   "branch_key": "main",
-  "seq": 1,
-  "title": "Uppercase signal contract",
-  "steps": [
-    { "id": "0001_sig", "type": "signal", "kind": "mark", "event": "FIRST_MEETING" },
-    { "id": "0002_sig", "type": "signal", "kind": "int", "name": "LOVE_POINTS", "op": "+", "value": 1 }
-  ],
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
   "gate": null,
-  "ending": { "type": "complete" }
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "event": "FIRST_MEETING",
+      "id": "0001_sig",
+      "kind": "mark",
+      "type": "signal"
+    },
+    {
+      "id": "0002_sig",
+      "kind": "int",
+      "name": "LOVE_POINTS",
+      "op": "+",
+      "type": "signal",
+      "value": 1
+    },
+    {
+      "condition": {
+        "name": "FIRST_MEETING",
+        "type": "flag"
+      },
+      "id": "0003_ctrl",
+      "then": [
+        {
+          "condition": {
+            "left": {
+              "kind": "value",
+              "name": "LOVE_POINTS"
+            },
+            "op": "\u003e=",
+            "right": {
+              "kind": "literal",
+              "value": 1
+            },
+            "type": "comparison"
+          },
+          "id": "0004_ctrl",
+          "then": [
+            {
+              "id": "0005_nar",
+              "text": "The contract is active.",
+              "type": "narrator"
+            }
+          ],
+          "type": "if"
+        }
+      ],
+      "type": "if"
+    },
+    {
+      "condition": {
+        "left": {
+          "kind": "value",
+          "name": "san"
+        },
+        "op": "\u003e=",
+        "right": {
+          "kind": "literal",
+          "value": 0
+        },
+        "type": "comparison"
+      },
+      "id": "0006_ctrl",
+      "then": [
+        {
+          "id": "0007_nar",
+          "text": "Lowercase engine values remain readable.",
+          "type": "narrator"
+        }
+      ],
+      "type": "if"
+    }
+  ],
+  "title": "Uppercase signal contract"
 }

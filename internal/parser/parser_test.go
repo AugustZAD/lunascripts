@@ -879,12 +879,11 @@ func TestParseConditionKeepsNotEquals(t *testing.T) {
 	parseOrFail(t, src)
 }
 
-func TestParsedCharacterLookSugarValidatesCanonicalOwner(t *testing.T) {
+func TestParsedCharacterLookSugarRemainsCompilerCompatible(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string
 		wantLook string
-		wantCode string
 	}{
 		{
 			name:     "directive canonical match",
@@ -892,10 +891,9 @@ func TestParsedCharacterLookSugarValidatesCanonicalOwner(t *testing.T) {
 			wantLook: "alice__casual__neutral_calm",
 		},
 		{
-			name:     "directive owner mismatch",
+			name:     "directive three-field legacy owner mismatch",
 			body:     "@alice bob__casual__neutral_calm",
 			wantLook: "bob__casual__neutral_calm",
-			wantCode: validator.CanonicalLookOwnerMismatch,
 		},
 		{
 			name:     "dialogue canonical match",
@@ -903,10 +901,9 @@ func TestParsedCharacterLookSugarValidatesCanonicalOwner(t *testing.T) {
 			wantLook: "alice__casual__warm_smile-arms_folded",
 		},
 		{
-			name:     "dialogue owner mismatch",
+			name:     "dialogue three-field legacy owner mismatch",
 			body:     "ALICE [bob__casual__neutral_calm]: Wrong owner.",
 			wantLook: "bob__casual__neutral_calm",
-			wantCode: validator.CanonicalLookOwnerMismatch,
 		},
 		{
 			name:     "dialogue legacy look remains valid",
@@ -930,18 +927,9 @@ func TestParsedCharacterLookSugarValidatesCanonicalOwner(t *testing.T) {
 				t.Fatalf("parsed character look = %q/%q, want alice/%q", show.Char, show.Look, tt.wantLook)
 			}
 			errs := validator.Validate(ep)
-			if tt.wantCode == "" {
-				if len(errs) != 0 {
-					t.Fatalf("unexpected validation errors: %#v", errs)
-				}
-				return
+			if len(errs) != 0 {
+				t.Fatalf("unexpected validation errors: %#v", errs)
 			}
-			for _, err := range errs {
-				if err.Code == tt.wantCode {
-					return
-				}
-			}
-			t.Fatalf("validation errors %#v do not contain %s", errs, tt.wantCode)
 		})
 	}
 }

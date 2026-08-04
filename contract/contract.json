@@ -13,8 +13,8 @@
   "invalid_fixtures": "fixtures/invalid",
   "compatibility": {
     "breaking": false,
-    "legacy_unversioned_episode_json": "accepted",
-    "migration": "none; legacy opaque look ids remain valid, canonical-shaped look ids gain owner validation, standalone unary ! remains invalid, and != remains valid"
+    "legacy_unversioned_episode_json": "consumer migration concern; v2 compiler output is always versioned",
+    "migration": "none; producer tooling standardizes new look ids while the compiler preserves every legacy opaque look id unchanged, standalone unary ! remains invalid, and != remains valid"
   },
   "rollout": {
     "consumer_repositories": [

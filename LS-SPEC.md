@@ -214,19 +214,25 @@ gate 块内的条件出口规则。括号 `()` 必需。条件类型见 §4.8。
 ```
 
 - `char`：角色 ID（小写）
-- `pose`：立绘名，对应素材语义名 `{char}_{pose}`
+- `pose`：源语法中对角色立绘素材键的历史名称；进入 AST 和 Episode JSON 后字段名为 `look`
 - `transition`：可选过渡。不写 = 瞬切。常用值：`dissolve`（0.3s 交叉溶解）、`fade`（淡入）
 
-The `look` operand is emitted unchanged as the Episode JSON asset key. Legacy
-projects may continue to use an opaque identifier such as `smile`; parsers,
-compilers, and runtimes MUST continue accepting that form.
+The source `pose` operand becomes `look` in the AST and is emitted unchanged as
+the Episode JSON asset key. The parser, compiler, validator, and runtime treat
+that key as opaque for backward compatibility. They MUST continue accepting
+and emitting every legacy key unchanged, including a bare key such as `smile`,
+an existing four-field stateful key, malformed delimiters or empty fields, and
+an exactly three-field canonical-looking key whose leading owner differs from
+the staged character. The compiler cannot distinguish an old stored key from a
+new authoring mistake and therefore does not enforce owner equality.
 
-New production content uses the canonical asset identity
-`<char>__<outfit>__<demeanor>[-<action>]`. When a look has exactly three
-`__`-separated fields, its leading `<char>` field MUST equal the staged
-character identifier. This applies equally to `@<char> <look>` and dialogue
-sugar `CHAR [<look>]:`. The compiler does not own the demeanor/action
-vocabulary; producer tooling validates that external asset contract.
+For **new production content**, the standard asset identity is
+`<char>__<outfit>__<demeanor>[-<action>]`. Producer tooling such as Episode
+Writer and IDE lint MUST require the leading `<char>` to equal the staged
+character identifier and may reject malformed or non-canonical keys before new
+content is accepted. The compiler does not own the demeanor/action vocabulary;
+producer tooling validates that external asset contract. This two-layer rule
+applies equally to `@<char> <pose>` and dialogue sugar `CHAR [<pose>]:`.
 
 **首次出现的角色**自动入场，后续相同角色再次出现则切 pose。**位置固定**（MC 左、其余右），不可指定。
 
@@ -328,9 +334,10 @@ CHARACTER [pose]: text
 CHARACTER: text
 ```
 
-`CHARACTER [pose]:` 的 `pose` 与角色指令中的 `look` 是同一个不改写的素材键，
-因此同样遵守上述两层兼容规则：存量 opaque ID 保持可用；恰好三段的
-canonical ID 必须与说话角色的 ID 一致。
+`CHARACTER [pose]:` 中的 `pose` 会以 AST/JSON 的 `look` 字段原样输出，
+因此同样遵守上述两层规则：编译链兼容所有存量 opaque 键（包括三段错
+owner 和畸形键）；Episode Writer / IDE 等 producer 则对新写内容严格要求
+`<char>__<outfit>__<demeanor>[-<action>]` 且 owner 与说话角色一致。
 
 例：
 

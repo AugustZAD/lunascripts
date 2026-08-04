@@ -1,7 +1,6 @@
 package validator
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,45 +13,6 @@ func unconditionalGate(target string) *ast.GateBlock {
 		Routes: []*ast.GateRoute{
 			{Leaf: &ast.NextLeaf{Target: target}},
 		},
-	}
-}
-
-func validateSingleLook(char, look string) []Error {
-	return Validate(&ast.Episode{
-		BranchKey: "look:01",
-		Title:     "Canonical look contract",
-		Body: []ast.Node{
-			&ast.CharShowNode{Char: char, Look: look},
-		},
-		Gate: unconditionalGate("next:01"),
-	})
-}
-
-func TestCanonicalLookOwnerCompatibility(t *testing.T) {
-	tests := []struct {
-		name     string
-		char     string
-		look     string
-		wantCode string
-	}{
-		{name: "canonical match", char: "alice", look: "alice__casual__neutral_calm"},
-		{name: "canonical action", char: "alice", look: "alice__casual__warm_smile-arms_folded"},
-		{name: "canonical owner comparison is case insensitive", char: "Alice", look: "ALICE__casual__neutral_calm"},
-		{name: "legacy bare look remains valid", char: "alice", look: "smile"},
-		{name: "legacy stateful canonical remains readable", char: "alice", look: "alice__casual__smile__hooded"},
-		{name: "malformed canonical-looking look remains legacy", char: "alice", look: "bob____neutral_calm"},
-		{name: "owner mismatch", char: "alice", look: "bob__casual__neutral_calm", wantCode: CanonicalLookOwnerMismatch},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			errs := validateSingleLook(tt.char, tt.look)
-			if tt.wantCode == "" && len(errs) != 0 {
-				t.Fatalf("unexpected errors: %#v", errs)
-			}
-			if tt.wantCode != "" && !slices.ContainsFunc(errs, func(err Error) bool { return err.Code == tt.wantCode }) {
-				t.Fatalf("errors %#v do not contain %s", errs, tt.wantCode)
-			}
-		})
 	}
 }
 

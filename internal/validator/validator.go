@@ -4,7 +4,6 @@ package validator
 import (
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/cdotlock/lunascripts/internal/ast"
 )
@@ -33,16 +32,7 @@ const (
 	InvalidPhoneContent        = "INVALID_PHONE_CONTENT"
 	AggregateTooFewArgs        = "AGGREGATE_TOO_FEW_ARGS"
 	GateNextMissingTarget      = "GATE_NEXT_MISSING_TARGET"
-	CanonicalLookOwnerMismatch = "CANONICAL_LOOK_OWNER_MISMATCH"
 )
-
-func canonicalLookOwner(look string) (string, bool) {
-	parts := strings.Split(look, "__")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return "", false
-	}
-	return strings.ToLower(parts[0]), true
-}
 
 // validTrickTypes mirrors the locked set in package ast. Keep in sync
 // with the Trick* constants there.
@@ -575,15 +565,6 @@ func checkValues(nodes []ast.Node, errs *[]Error) {
 				*errs = append(*errs, Error{
 					Code:    ReservedKeyword,
 					Message: fmt.Sprintf("character %q has reserved pose name %q (use @<char> bubble <type> for bubble animations)", v.Char, v.Look),
-				})
-			}
-			if owner, canonical := canonicalLookOwner(v.Look); canonical && owner != strings.ToLower(v.Char) {
-				*errs = append(*errs, Error{
-					Code: CanonicalLookOwnerMismatch,
-					Message: fmt.Sprintf(
-						"canonical look %q belongs to %q but is staged on character %q",
-						v.Look, owner, v.Char,
-					),
 				})
 			}
 		case *ast.CharBubbleNode:

@@ -8,7 +8,7 @@
 
 ```json
 {
-  "ls_contract_version": "2.0.0",
+  "ls_contract_version": "2.1.0",
   "episode_id": "main:01",
   "branch_key": "main",
   "seq": 1,
@@ -21,7 +21,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `ls_contract_version` | string | 生成该 JSON 的 Lunaverse Script 契约版本；v2 固定为 `"2.0.0"` |
+| `ls_contract_version` | string | 生成该 JSON 的 Lunaverse Script 契约版本；当前固定为 `"2.1.0"` |
 | `episode_id` | string | 集的完整标识，格式 `<branch_key>:<seq>`，如 `"main:01"` |
 | `branch_key` | string | 分支路径，如 `"main"`、`"main/bad/001"`、`"remix/abc123"` |
 | `seq` | number | 集序号（从 1 开始） |

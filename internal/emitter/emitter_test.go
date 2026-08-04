@@ -10,6 +10,7 @@ import (
 	"github.com/cdotlock/lunascripts/internal/ast"
 	"github.com/cdotlock/lunascripts/internal/lexer"
 	"github.com/cdotlock/lunascripts/internal/parser"
+	"github.com/cdotlock/lunascripts/internal/validator"
 )
 
 // mockResolver implements AssetResolver for testing.
@@ -28,6 +29,9 @@ func newMockResolver() *mockResolver {
 			"school_classroom": "https://cdn.test/bg/school_classroom.png",
 		},
 		characters: map[string]map[string]string{
+			"alice": {
+				"bob__casual__neutral_calm": "https://cdn.test/characters/legacy-owner-mismatch.png",
+			},
 			"mauricio": {
 				"neutral_smirk":      "https://cdn.test/characters/mauricio_neutral_smirk.png",
 				"arms_crossed_angry": "https://cdn.test/characters/mauricio_arms_crossed_angry.png",
@@ -189,6 +193,33 @@ func TestEmitMinimal(t *testing.T) {
 	// No warnings expected.
 	if len(em.Warnings) != 0 {
 		t.Errorf("unexpected warnings: %v", em.Warnings)
+	}
+}
+
+func TestCompilePreservesLegacyThreeFieldOwnerMismatch(t *testing.T) {
+	src := `@episode main:01 "Legacy three-field look" {
+  @alice bob__casual__neutral_calm
+  @gate { @end complete }
+}`
+	ep, err := parser.New(lexer.New(src)).Parse()
+	if err != nil {
+		t.Fatalf("parse legacy look: %v", err)
+	}
+	if errs := validator.Validate(ep); len(errs) != 0 {
+		t.Fatalf("legacy look must validate unchanged, got %#v", errs)
+	}
+	out, err := New(newMockResolver()).Emit(ep)
+	if err != nil {
+		t.Fatalf("emit legacy look: %v", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("decode emitted JSON: %v", err)
+	}
+	steps := result["steps"].([]interface{})
+	show := steps[0].(map[string]interface{})
+	if show["character"] != "alice" || show["look"] != "bob__casual__neutral_calm" {
+		t.Fatalf("emitted character look = %q/%q, want unchanged alice/bob__casual__neutral_calm", show["character"], show["look"])
 	}
 }
 

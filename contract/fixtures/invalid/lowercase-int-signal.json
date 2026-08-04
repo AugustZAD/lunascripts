@@ -1,12 +1,21 @@
 {
-  "ls_contract_version": "2.0.0",
-  "episode_id": "main:01",
   "branch_key": "main",
-  "seq": 1,
-  "title": "Invalid lowercase integer signal",
-  "steps": [
-    { "id": "0001_sig", "type": "signal", "kind": "int", "name": "love_points", "op": "+", "value": 1 }
-  ],
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
   "gate": null,
-  "ending": { "type": "complete" }
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "id": "0001_sig",
+      "kind": "int",
+      "name": "love_points",
+      "op": "+",
+      "type": "signal",
+      "value": 1
+    }
+  ],
+  "title": "Invalid lowercase integer signal"
 }

@@ -1,12 +1,19 @@
 {
-  "ls_contract_version": "2.0.0",
-  "episode_id": "main:01",
   "branch_key": "main",
-  "seq": 1,
-  "title": "Invalid lowercase mark signal",
-  "steps": [
-    { "id": "0001_sig", "type": "signal", "kind": "mark", "event": "first_meeting" }
-  ],
+  "ending": {
+    "type": "complete"
+  },
+  "episode_id": "main:01",
   "gate": null,
-  "ending": { "type": "complete" }
+  "ls_contract_version": "2.1.0",
+  "seq": 1,
+  "steps": [
+    {
+      "event": "first_meeting",
+      "id": "0001_sig",
+      "kind": "mark",
+      "type": "signal"
+    }
+  ],
+  "title": "Invalid lowercase mark signal"
 }
